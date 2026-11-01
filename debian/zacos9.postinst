@@ -62,7 +62,7 @@ guest_seat() {
 	done
 }
 
-# Dark Star OS runs on old Macs with 2-4 GB, where compressed memory is
+# Stella Blue OS runs on old Macs with 2-4 GB, where compressed memory is
 # the cheapest way to more room: on by default, up to half of memory, in
 # the form the Memory control panel's helper writes and reads back. A
 # file already there (the panel's choice, or the admin's) is left alone.

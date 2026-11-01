@@ -1,0 +1,3 @@
+#!/bin/sh
+# stellablue-copy-path FILE...: Copy Path, the full paths onto the clipboard.
+printf '%s\n' "$@" | head -c -1 | wl-copy

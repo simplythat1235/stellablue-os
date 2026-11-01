@@ -8,9 +8,9 @@ This page is what's true now and what's next. What changed and when is in
 `git log`, `debian/changelog` and the release notes; how each part works is in
 [`docs/`](docs/) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## Dark Star OS (this fork)
+## Stella Blue OS (this fork)
 
-This repository is Dark Star OS, a personal build of ZacOS 9 for rescued old
+This repository is Stella Blue OS, a personal build of ZacOS 9 for rescued old
 Macs: Mac OS 9's lightness with OS X conveniences, a dancing bear in place
 of Happy Zac, and Grateful Dead names in place of the dog ones.
 

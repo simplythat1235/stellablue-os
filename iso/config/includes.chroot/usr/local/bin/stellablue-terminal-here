@@ -1,5 +1,5 @@
 #!/bin/sh
-# darkstar-terminal-here FOLDER: Open Terminal Here.
+# stellablue-terminal-here FOLDER: Open Terminal Here.
 cd "$1" || exit 1
 command -v xfce4-terminal >/dev/null && exec xfce4-terminal --working-directory="$1"
 exec foot

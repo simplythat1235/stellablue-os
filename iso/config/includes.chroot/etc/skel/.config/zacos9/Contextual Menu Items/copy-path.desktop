@@ -2,5 +2,5 @@
 Type=Application
 Name=Copy Path
 MimeType=
-Exec=darkstar-copy-path %F
+Exec=stellablue-copy-path %F
 NoDisplay=true

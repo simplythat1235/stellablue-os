@@ -21,10 +21,10 @@ if ! command -v lb >/dev/null; then
 fi
 
 # Our packages first: the ISO installs them from build/packages.
-# Dark Star OS is for rescued old Macs: no emulators, Wine or Etcher, which
+# Stella Blue OS is for rescued old Macs: no emulators, Wine or Etcher, which
 # keeps the ISO small enough for a GitHub Release and the system light.
 # Skip the build when CI already made the packages.
-[ -n "${DARKSTAR_SKIP_DEBS:-}" ] || sh scripts/build-debs.sh
+[ -n "${STELLABLUE_SKIP_DEBS:-}" ] || sh scripts/build-debs.sh
 
 # live-build makes a chroot here, so it must be a Linux file system
 # (not /mnt/c or /mnt/d).
@@ -38,9 +38,9 @@ sudo_ lb config \
 	--archive-areas "main contrib non-free non-free-firmware" \
 	--firmware-chroot true \
 	--debian-installer live \
-	--iso-application "Dark Star OS" \
-	--iso-publisher "Dark Star OS" \
-	--iso-volume "DarkStarOS" \
+	--iso-application "Stella Blue OS" \
+	--iso-publisher "Stella Blue OS" \
+	--iso-volume "StellaBlueOS" \
 	--image-name zacos9 \
 	--bootappend-live "$(cat "$root/iso/kernel-params")" \
 	--memtest none
@@ -59,7 +59,7 @@ sudo_ find config/includes.chroot config/includes.binary config/package-lists co
 sudo_ chmod 755 config/includes.chroot/usr/lib/live/config/2000-zacos9-greetd \
 	config/hooks/normal/9000-zacos9.hook.chroot \
 	config/hooks/normal/9100-darkstar.hook.chroot
-sudo_ find config/includes.chroot/usr/local/bin -type f -name 'darkstar-*' \
+sudo_ find config/includes.chroot/usr/local/bin -type f -name 'stellablue-*' \
 	-exec chmod 755 {} +
 
 sudo_ lb build

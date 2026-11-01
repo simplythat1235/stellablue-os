@@ -3,7 +3,7 @@
  *                    the dancing bear's head (assets/menubar/happy-zac-mini.png),
  *                    from tools/menubar/make-menu-logo.py.
  * logo_pixels_hq() — 64×64 ARGB with full alpha, for startup/installer: the
- *                    Dark Star OS dancing bear, from assets/boot/happy-zac.png.
+ *                    Stella Blue OS dancing bear, from assets/boot/happy-zac.png.
  */
 #include <stddef.h>
 #include <stdint.h>

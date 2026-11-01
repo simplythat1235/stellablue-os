@@ -12,7 +12,7 @@ extern "C" {
 /*
  * The startup screen, after the Macintosh's of 1984 (measured from a
  * screenshot of its 512x342 screen; nothing of Apple's is used): first
- * the dancing bear on white, then the welcome box ("Dark Star OS")
+ * the dancing bear on white, then the welcome box ("Stella Blue OS")
  * - white, a black
  * line round it and a solid shadow 2 px right and below - with the ZacOS
  * logo at its left. Drawn by the compositor (compositor/src/startup.c) and,
@@ -34,7 +34,7 @@ extern "C" {
 #define PL_WELCOME_ICON_Y 25
 #define PL_WELCOME_TITLE_X 236  /* the middle of the title's ink, from the box's left */
 #define PL_WELCOME_BASELINE 42  /* the title's baseline, from the box's top */
-#define PL_WELCOME_TITLE "Dark Star OS"
+#define PL_WELCOME_TITLE "Stella Blue OS"
 
 /* The scale for a w x h display: the largest whole number the 1984 screen
  * fits in that many times, from 1 to PL_WELCOME_MAX_SCALE. */

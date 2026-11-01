@@ -2,5 +2,5 @@
 Type=Application
 Name=Compress To ZIP
 MimeType=
-Exec=darkstar-zip %F
+Exec=stellablue-zip %F
 NoDisplay=true

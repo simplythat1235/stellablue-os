@@ -1,4 +1,4 @@
-name: Dark Star OS test ISO
+name: Stella Blue OS test ISO
 
 # Builds the live and install ISO (scripts/build-iso.sh) and publishes it as
 # a prerelease, so it can be downloaded and written to a USB stick. The
@@ -47,7 +47,7 @@ jobs:
               git config --global --add safe.directory "*"
               cd /src
               sh scripts/build-debs.sh
-              DARKSTAR_SKIP_DEBS=1 sh scripts/build-iso.sh
+              STELLABLUE_SKIP_DEBS=1 sh scripts/build-iso.sh
             '
           ls -l build/iso
 
@@ -57,8 +57,8 @@ jobs:
         run: |
           iso=$(ls build/iso/*.iso | head -1)
           short=$(echo "$GITHUB_SHA" | cut -c1-7)
-          tag="darkstar-test-$short"
-          name="darkstar-os-$short-amd64.iso"
+          tag="stellablue-test-$short"
+          name="stellablue-os-$short-amd64.iso"
           mkdir -p out
           sudo mv "$iso" "out/$name"
           sudo chown "$(id -u)" "out/$name"
@@ -75,5 +75,5 @@ jobs:
             note="Write $name to a USB stick with balenaEtcher or dd."
           fi
           gh release create "$tag" ./* --repo "$GITHUB_REPOSITORY" --prerelease \
-            --target "$GITHUB_SHA" --title "Dark Star OS test ISO ($short)" \
+            --target "$GITHUB_SHA" --title "Stella Blue OS test ISO ($short)" \
             --notes "Test build from ${GITHUB_REF_NAME} at ${short}. $note"

@@ -67,7 +67,7 @@ efibootmgr
 # themselves through FUSE 2.
 libfuse2t64
 
-# Dark Star OS: OS X conveniences that stay light
+# Stella Blue OS: OS X conveniences that stay light
 firefox-esr
 xfce4-terminal
 fuzzel

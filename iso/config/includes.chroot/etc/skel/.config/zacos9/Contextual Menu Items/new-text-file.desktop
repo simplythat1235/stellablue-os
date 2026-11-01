@@ -2,5 +2,5 @@
 Type=Application
 Name=New Text File
 MimeType=inode/directory;
-Exec=darkstar-new-text-file %f
+Exec=stellablue-new-text-file %f
 NoDisplay=true

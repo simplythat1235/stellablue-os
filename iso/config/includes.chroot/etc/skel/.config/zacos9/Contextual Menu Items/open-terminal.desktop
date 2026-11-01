@@ -2,5 +2,5 @@
 Type=Application
 Name=Open Terminal Here
 MimeType=inode/directory;
-Exec=darkstar-terminal-here %f
+Exec=stellablue-terminal-here %f
 NoDisplay=true

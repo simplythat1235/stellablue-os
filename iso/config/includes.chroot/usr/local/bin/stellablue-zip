@@ -1,5 +1,5 @@
 #!/bin/sh
-# darkstar-zip FILE...: Compress To ZIP, one .zip beside the first item.
+# stellablue-zip FILE...: Compress To ZIP, one .zip beside the first item.
 cd "$(dirname "$1")" || exit 1
 first=$(basename "$1")
 [ $# -gt 1 ] && name="Archive" || name="$first"

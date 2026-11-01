@@ -2,5 +2,5 @@
 Type=Application
 Name=Make JPEG Copy
 MimeType=image/*;
-Exec=darkstar-copy-as jpg %F
+Exec=stellablue-copy-as jpg %F
 NoDisplay=true

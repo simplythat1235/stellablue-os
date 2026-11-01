@@ -2,5 +2,5 @@
 Type=Application
 Name=Rotate Left
 MimeType=image/*;
-Exec=darkstar-rotate -90 %F
+Exec=stellablue-rotate -90 %F
 NoDisplay=true
