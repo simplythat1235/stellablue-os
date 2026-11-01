@@ -121,10 +121,12 @@ static QString resolveResourceFork(const QString &file) {
 	return file;
 }
 
-/* The theme name from a file: the basename without extension or " copy". */
+/* The theme name from a file: the basename without extension, " copy" or
+ * "Copy of " / "Copy 2 of ". */
 static QString nameFromFile(const QString &file) {
 	QString base = QFileInfo(file).completeBaseName();
 	base.replace(QRegularExpression(" copy$", QRegularExpression::CaseInsensitiveOption), "");
+	base.replace(QRegularExpression("^copy( \\d+)? of ", QRegularExpression::CaseInsensitiveOption), "");
 	return base.trimmed();
 }
 

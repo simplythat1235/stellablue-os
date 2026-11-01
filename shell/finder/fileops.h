@@ -14,21 +14,23 @@ class QDropEvent;
 /* Move or copy items into a folder, Finder style:
  * - within one disk the items move; between disks they are copied;
  * - Option (Alt) forces a copy; a copy into the same folder is named
- *   "<name> copy", "<name> copy 2", ...
+ *   "Copy of <name>", "Copy 2 of <name>", ...
  * Shows a responsive Platinum progress dialog with Stop for the batch.
  * Stop keeps completed items and rolls back the current incomplete copy.
  * Returns the folders whose contents changed; conflicts are reported and
  * never overwrite existing items. */
 QStringList transferItems(const QStringList &paths, const QString &destDir, bool forceCopy,
 	bool *finished = nullptr);
-/* `suffix` follows the name (Make Alias: " alias"; Favorites: none). */
+/* `label` names the alias "<label> of <name>", then "<label> 2 of <name>"
+ * (Make Alias: "Alias of Report.txt"); empty keeps the plain name
+ * (Favorites). */
 QString createAlias(const QString &target, const QString &destDir, const QString &name,
-	const QString &suffix = QStringLiteral(" alias"));
+	const QString &label = QStringLiteral("Alias"));
 /* An alias of one of the Finder's own items (`vfs:/applications`), which
  * has no file to point at. It opens that item and shows in italics like
  * any alias, but has no identity record to reconnect. */
 QString createVirtualAlias(const QString &vfsPath, const QString &destDir, const QString &name,
-	const QString &suffix = QStringLiteral(" alias"));
+	const QString &label = QStringLiteral("Alias"));
 
 /* Start dragging `items`, shown as dotted outlines (Mac OS 8 dragged
  * outlines, not pictures). `itemOrigins` are the items' icon positions in

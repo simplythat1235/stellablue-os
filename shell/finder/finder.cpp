@@ -1190,7 +1190,7 @@ static bool isSpecial(const Item *item) {
 		item->kind == PL_ICON_TRASH_EMPTY || item->kind == PL_ICON_TRASH_FULL;
 }
 
-/* "Report copy" next to "Report" (Mac OS 8 naming). */
+/* "Copy of Report" next to "Report". */
 void Finder::duplicate() {
 	FinderView *v = front();
 	QStringList paths;
@@ -1236,7 +1236,7 @@ void Finder::setLabel(int label) {
 	}
 }
 
-/* An alias is a symbolic link named "<name> alias"; its name shows in
+/* An alias is a symbolic link named "Alias of <name>"; its name shows in
  * italics. */
 void Finder::makeAlias() {
 	FinderView *v = front();

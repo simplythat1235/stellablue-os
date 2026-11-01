@@ -243,12 +243,24 @@ def containers(data, suffix):
     return data, b""
 
 
+IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff", ".webp")
+
+
+def is_image_data(data):
+    """True for PNG, JPEG, GIF, BMP, TIFF or WebP contents, whatever the name
+    ("photo.jpg copy" is still a JPEG)."""
+    return (data[:8] == b"\x89PNG\r\n\x1a\n" or data[:3] == b"\xff\xd8\xff" or
+            data[:6] in (b"GIF87a", b"GIF89a") or
+            (data[:2] == b"BM" and len(data) > 14 and int.from_bytes(data[2:6], "little") == len(data)) or
+            data[:4] in (b"II*\0", b"MM\0*") or (data[:4] == b"RIFF" and data[8:12] == b"WEBP"))
+
+
 def read_file(path):
     if path.stat().st_size > MAX_FILE:
-        raise ValueError("file exceeds the 16 MiB import limit")
+        raise ValueError(f"file exceeds the {MAX_FILE // (1024 * 1024)} MiB import limit")
     data = path.read_bytes()
     suffix = path.suffix.lower()
-    if suffix in (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff"):
+    if suffix in IMAGE_SUFFIXES or is_image_data(data):
         with Image.open(io.BytesIO(data)) as image:
             dimensions(*image.size)
             return [("image", path.stem, image.convert("RGBA"))]

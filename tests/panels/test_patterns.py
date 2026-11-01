@@ -191,10 +191,13 @@ with tempfile.TemporaryDirectory(prefix="zacos9-pattern-test-") as directory:
     (wallpaper / "Picture.pict").write_bytes(b"\0" * 512 + picture)
     (wallpaper / "BinHex.hqx").write_bytes(hqx(b"", resource_file([(b"PICT", 42, "Photo", picture)])))
     (wallpaper / "Wrong Folder.ppat").write_bytes(color)
+    # A Finder-style copy whose name no longer ends in .jpg: read by contents.
+    Image.new("RGB", (64, 48), (200, 40, 40)).save(wallpaper / "Sunset.jpg copy", format="JPEG")
     result = subprocess.run([sys.executable, str(tool), "--wallpaper", str(wallpaper)],
                             capture_output=True, text=True, timeout=30, check=True)
     photos = json.loads(result.stdout)
-    assert len(photos["entries"]) == 3, photos
+    assert len(photos["entries"]) == 4, photos
+    assert any(entry["name"].startswith("Sunset.jpg copy") for entry in photos["entries"])
     assert all(entry["id"].startswith("wallpaper:") for entry in photos["entries"])
     assert len(photos["errors"]) == 1 and "pattern tiles belong" in photos["errors"][0]
     result = subprocess.run([sys.executable, str(tool), str(wallpaper)],

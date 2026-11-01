@@ -5,7 +5,7 @@
 #   echo hi > ~/Desktop/Report.txt
 #   scripts/snapshot.sh /tmp/fc.png 14 "sh tests/ui/finder-file-commands.sh"
 # Expected:
-#   /tmp/fc1.png  desktop: Report.txt, "Report.txt copy", "Report.txt alias"
+#   /tmp/fc1.png  desktop: Report.txt, "Copy of Report.txt", "Alias of Report.txt"
 #   /tmp/fc2.png  the alias is in the Trash window
 #   /tmp/fc3.png  after Put Away, the alias is back on the desktop
 #   ~/Desktop/Report.txt alias is a symbolic link to Report.txt
