@@ -1,0 +1,582 @@
+#define _DEFAULT_SOURCE /* realpath */
+#include <dirent.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <glib.h>
+
+#include "appfilter.h"
+#include "controlpanels.h"
+#include "icons.h"
+#include "electron.h"
+#include "locate.h"
+#include "menubar.h"
+
+static void detach_session(void *data) {
+	if (setsid() < 0) {
+		const char message[] = "Could not detach application launch session\n";
+		ssize_t written = write(STDERR_FILENO, message, sizeof(message) - 1);
+		(void)written;
+		_exit(127);
+	}
+}
+
+/* Run a shell command fully detached from the menu bar. Electron apps
+ * start under X11, where they give us their menus (lib/electron.h). */
+void launch(const char *command) {
+	char *electron = pl_electron_command(command);
+	if (electron) {
+		command = electron;
+	}
+	uint32_t cookie = launch_feedback_begin();
+	char *argv[] = { "/bin/sh", "-c", (char *)command, NULL };
+	GPid pid;
+	GError *error = NULL;
+	if (!g_spawn_async(NULL, argv, NULL, G_SPAWN_DEFAULT, detach_session, NULL, &pid, &error)) {
+		launch_feedback_cancel(cookie);
+		fprintf(stderr, "Could not launch %s: %s\n", command, error->message);
+		g_error_free(error);
+		free(electron);
+		return;
+	}
+	launch_feedback_update(cookie, pid);
+	g_spawn_close_pid(pid);
+	free(electron);
+}
+
+/* A shell command running `program` from next to this binary (installed)
+ * or from the build tree (pl_sibling_program()), else from $PATH. */
+void sibling_program(const char *program, char *out, size_t size) {
+	char path[PATH_MAX];
+	if (pl_sibling_program(program, path, sizeof(path))) {
+		snprintf(out, size, "exec '%s'", path);
+		return;
+	}
+	snprintf(out, size, "exec %s", program);
+}
+
+/* Exec= minus the %f/%u/... field codes we don't fill in. */
+static char *strip_field_codes(const char *exec) {
+	char *out = malloc(strlen(exec) + 1), *o = out;
+	for (const char *p = exec; *p; p++) {
+		if (p[0] == '%' && p[1]) {
+			if (p[1] == '%') {
+				*o++ = '%';
+			}
+			p++;
+			continue;
+		}
+		*o++ = *p;
+	}
+	*o = '\0';
+	return out;
+}
+
+struct entry {
+	char *name, *exec, *path;
+	bool directory;
+	enum action action;
+};
+
+static bool read_desktop(const char *path, struct entry *e) {
+	if (!pl_app_allowed_file(path)) {
+		return false; /* a Limited account's other programs aren't listed */
+	}
+	FILE *f = fopen(path, "r");
+	if (!f) {
+		return false;
+	}
+	char line[1024];
+	bool in_entry = false;
+	e->name = e->exec = NULL;
+	while (fgets(line, sizeof(line), f)) {
+		line[strcspn(line, "\r\n")] = '\0';
+		if (line[0] == '[') {
+			in_entry = strcmp(line, "[Desktop Entry]") == 0;
+		} else if (in_entry && !e->name && strncmp(line, "Name=", 5) == 0) {
+			e->name = strdup(line + 5);
+		} else if (in_entry && !e->exec && strncmp(line, "Exec=", 5) == 0) {
+			e->exec = strip_field_codes(line + 5);
+		}
+	}
+	fclose(f);
+	if (!e->name || !e->exec) {
+		free(e->name);
+		free(e->exec);
+		return false;
+	}
+	/* ZacOS's own programs ("Exec=zacos9-calculator") from beside us, so
+	 * a build tree's menu bar runs the build tree's. */
+	if (strncmp(e->exec, "zacos9-", 7) == 0) {
+		const size_t word = strcspn(e->exec, " \t");
+		char program[128], command[PATH_MAX + 256];
+		if (word < sizeof(program)) {
+			memcpy(program, e->exec, word);
+			program[word] = '\0';
+			sibling_program(program, command, sizeof(command));
+			char *own = g_strconcat(command, e->exec + word, NULL);
+			free(e->exec);
+			e->exec = strdup(own);
+			g_free(own);
+		}
+	}
+	return true;
+}
+
+bool launch_read_desktop(const char *path, char **name, char **exec) {
+	struct entry e;
+	if (!read_desktop(path, &e)) {
+		return false;
+	}
+	*name = e.name;
+	*exec = e.exec;
+	return true;
+}
+
+static int by_name(const void *a, const void *b) {
+	return strcasecmp(((const struct entry *)a)->name, ((const struct entry *)b)->name);
+}
+
+static void free_entries(struct entry *entries, int n) {
+	for (int i = 0; i < n; i++) {
+		free(entries[i].name);
+		free(entries[i].exec);
+		free(entries[i].path);
+	}
+}
+
+static int read_items_dir(const char *dir_path, struct entry *entries, int max) {
+	DIR *dir = opendir(dir_path);
+	if (!dir) {
+		return 0;
+	}
+	int n = 0;
+	struct dirent *de;
+	while ((de = readdir(dir)) && n < max) {
+		if (de->d_name[0] == '.') {
+			continue;
+		}
+		char path[PATH_MAX];
+		const int length = snprintf(path, sizeof(path), "%s/%s", dir_path, de->d_name);
+		if (length < 0 || (size_t)length >= sizeof(path)) {
+			continue;
+		}
+		struct stat info;
+		if (lstat(path, &info) != 0) {
+			continue;
+		}
+		if (S_ISDIR(info.st_mode)) {
+			entries[n] = (struct entry){
+				.name = strdup(de->d_name), .path = strdup(path), .directory = true,
+				.action = ACT_NONE,
+			};
+			n++;
+			continue;
+		}
+		/* An alias of a program (its desktop file) is that program, under
+		 * the alias's name, as Mac OS 9's Apple Menu Items had them. */
+		char *real = S_ISLNK(info.st_mode) ? realpath(path, NULL) : NULL;
+		const size_t real_len = real ? strlen(real) : 0;
+		if (real && real_len > 8 && strcmp(real + real_len - 8, ".desktop") == 0) {
+			struct entry entry = { .path = real, .action = ACT_LAUNCH };
+			if (read_desktop(real, &entry)) {
+				free(entry.name);
+				entry.name = strdup(de->d_name);
+				const size_t name_len = strlen(entry.name);
+				if (name_len > 8 && strcmp(entry.name + name_len - 8, ".desktop") == 0) {
+					entry.name[name_len - 8] = '\0';
+				}
+				entries[n++] = entry;
+			} else {
+				free(real);
+			}
+			continue;
+		}
+		free(real);
+		if (S_ISLNK(info.st_mode) && !strchr(path, '\n') && !strchr(path, '\r')) {
+			struct stat target;
+			if (stat(path, &target) == 0 && (S_ISREG(target.st_mode) || S_ISDIR(target.st_mode))) {
+				entries[n++] = (struct entry){
+					.name = strdup(de->d_name),
+					.exec = g_strdup_printf("open-path %s", path),
+					.path = strdup(path),
+					.action = ACT_FINDER,
+				};
+			}
+			continue;
+		}
+		const size_t len = strlen(de->d_name);
+		if (!S_ISREG(info.st_mode) || len < 9 ||
+				strcmp(de->d_name + len - 8, ".desktop") != 0) {
+			continue;
+		}
+		struct entry entry = { .path = strdup(path), .action = ACT_LAUNCH };
+		if (read_desktop(path, &entry)) {
+			entries[n++] = entry;
+		} else {
+			free(entry.path);
+		}
+	}
+	closedir(dir);
+	qsort(entries, n, sizeof(entries[0]), by_name);
+	return n;
+}
+
+static struct mb_item *add_item(struct mb_menu *menu, const char *label, bool enabled,
+		enum action action, const char *arg);
+
+/* An item's icon: one of ours, or a desktop entry's own. */
+static void with_kind(struct mb_item *it, enum pl_icon_kind kind) {
+	if (it) {
+		it->icon_kind = (int)kind + 1;
+	}
+}
+static void with_desktop_icon(struct mb_item *it, const char *desktop, enum pl_icon_kind otherwise) {
+	if (!it) {
+		return;
+	}
+	it->icon_px = desktop && menu_icon_for_desktop ? menu_icon_for_desktop(desktop) : NULL;
+	if (!it->icon_px) {
+		with_kind(it, otherwise);
+	}
+}
+
+static int populate_items_menu(struct mb_menu *menu, const char *path, int depth) {
+	if (depth > 4 || menu->n >= MAX_ITEMS) {
+		return 0;
+	}
+	struct entry entries[MAX_ITEMS];
+	const int n = read_items_dir(path, entries, MAX_ITEMS);
+	int added = 0;
+	for (int i = 0; i < n && menu->n < MAX_ITEMS; i++) {
+		if (entries[i].directory) {
+			struct mb_menu *sub = calloc(1, sizeof(*sub));
+			if (!sub) {
+				continue;
+			}
+			const int children = populate_items_menu(sub, entries[i].path, depth + 1);
+			if (children > 0) {
+				with_kind(add_item(menu, entries[i].name, true, ACT_NONE, NULL), PL_ICON_FOLDER);
+				menu->items[menu->n - 1].submenu = sub;
+				added++;
+			} else {
+				free(sub);
+			}
+		} else {
+			struct mb_item *it = add_item(menu, entries[i].name, true, entries[i].action, entries[i].exec);
+			/* A program: its own icon; an alias: a folder's or a document's. */
+			struct stat st;
+			if (entries[i].action == ACT_LAUNCH) {
+				with_desktop_icon(it, entries[i].path, pl_icon_for_program(entries[i].path));
+			} else {
+				with_kind(it, entries[i].exec && stat(entries[i].exec + (strncmp(entries[i].exec, "open-path ", 10) == 0 ? 10 : 0), &st) == 0
+					&& S_ISDIR(st.st_mode) ? PL_ICON_FOLDER : PL_ICON_DOCUMENT);
+			}
+			added++;
+		}
+	}
+	free_entries(entries, n);
+	return added;
+}
+
+static struct mb_item *add_item(struct mb_menu *menu, const char *label, bool enabled,
+		enum action action, const char *arg) {
+	if (menu->n >= MAX_ITEMS) {
+		return NULL;
+	}
+	struct mb_item *it = &menu->items[menu->n++];
+	*it = (struct mb_item){
+		.label = label ? strdup(label) : NULL,
+		.enabled = enabled,
+		.action = action,
+		.arg = arg ? strdup(arg) : NULL,
+	};
+	return it;
+}
+
+/* $XDG_CONFIG_HOME/zacos9/NAME (the Sniffer's QStandardPaths agrees). */
+static void config_path(const char *name, char *out, size_t size) {
+	const char *config = getenv("XDG_CONFIG_HOME");
+	if (config && *config) {
+		snprintf(out, size, "%s/zacos9/%s", config, name);
+	} else {
+		snprintf(out, size, "%s/.config/zacos9/%s", getenv("HOME") ? getenv("HOME") : "", name);
+	}
+}
+
+static int by_label(const void *a, const void *b) {
+	return strcasecmp(*(char *const *)a, *(char *const *)b);
+}
+
+/* Favorites: the aliases in the Favorites folder, by name; the Sniffer
+ * opens the one chosen. Dimmed when there are none. */
+static void add_favorites(struct mb_menu *menu) {
+	char dir_path[PATH_MAX];
+	config_path("Favorites", dir_path, sizeof(dir_path));
+	char *names[MAX_ITEMS];
+	int n = 0;
+	DIR *dir = opendir(dir_path);
+	if (dir) {
+		struct dirent *de;
+		while ((de = readdir(dir)) && n < MAX_ITEMS) {
+			if (de->d_name[0] != '.') {
+				names[n++] = strdup(de->d_name);
+			}
+		}
+		closedir(dir);
+	}
+	qsort(names, n, sizeof(names[0]), by_label);
+	with_kind(add_item(menu, "Favorites", n > 0, ACT_NONE, NULL), PL_ICON_FOLDER);
+	struct mb_menu *favorites = calloc(1, sizeof(*favorites));
+	menu->items[menu->n - 1].submenu = favorites;
+	for (int i = 0; i < n; i++) {
+		char arg[PATH_MAX + 300];
+		snprintf(arg, sizeof(arg), "open-path %s/%s", dir_path, names[i]);
+		struct stat st;
+		char target[PATH_MAX + 300];
+		snprintf(target, sizeof(target), "%s/%s", dir_path, names[i]);
+		with_kind(add_item(favorites, names[i], true, ACT_FINDER, arg),
+			stat(target, &st) == 0 && S_ISDIR(st.st_mode) ? PL_ICON_FOLDER : PL_ICON_DOCUMENT);
+		free(names[i]);
+	}
+}
+
+/* User scripts in ZacOS 9 Menu Items/Automated Tasks appear as a submenu.
+ * Only executable regular files are offered; each path is shell-quoted. */
+static void add_automated_tasks(struct mb_menu *menu) {
+	char root[PATH_MAX], dir_path[PATH_MAX];
+	config_path("ZacOS 9 Menu Items", root, sizeof(root));
+	if (snprintf(dir_path, sizeof(dir_path), "%s/Automated Tasks", root) >=
+			(int)sizeof(dir_path)) {
+		return;
+	}
+	char *names[MAX_ITEMS];
+	int n = 0;
+	DIR *dir = opendir(dir_path);
+	if (dir) {
+		struct dirent *de;
+		while ((de = readdir(dir)) && n < MAX_ITEMS) {
+			if (de->d_name[0] == '.') {
+				continue;
+			}
+			char path[PATH_MAX];
+			if (snprintf(path, sizeof(path), "%s/%s", dir_path, de->d_name) <
+					(int)sizeof(path) && access(path, X_OK) == 0 &&
+					g_file_test(path, G_FILE_TEST_IS_REGULAR)) {
+				names[n++] = strdup(de->d_name);
+			}
+		}
+		closedir(dir);
+	}
+	qsort(names, n, sizeof(names[0]), by_label);
+	if (menu->n >= MAX_ITEMS) {
+		for (int i = 0; i < n; i++) {
+			free(names[i]);
+		}
+		return;
+	}
+	with_kind(add_item(menu, "Automated Tasks", n > 0, ACT_NONE, NULL), PL_ICON_FOLDER);
+	struct mb_item *item = &menu->items[menu->n - 1];
+	item->submenu = calloc(1, sizeof(*item->submenu));
+	for (int i = 0; i < n; i++) {
+		char path[PATH_MAX], *quoted;
+		if (snprintf(path, sizeof(path), "%s/%s", dir_path, names[i]) >=
+				(int)sizeof(path)) {
+			free(names[i]);
+			continue;
+		}
+		quoted = g_shell_quote(path);
+		char command[PATH_MAX * 2];
+		snprintf(command, sizeof(command), "exec %s", quoted);
+		with_kind(add_item(item->submenu, names[i], true, ACT_LAUNCH, command), PL_ICON_APPLICATION);
+		g_free(quoted);
+		free(names[i]);
+	}
+}
+
+/* An installed desktop file, as a data folder has it, or NULL. */
+static char *find_desktop_file(const char *id) {
+	char *found = NULL;
+	char *user = g_build_filename(g_get_user_data_dir(), "applications", id, NULL);
+	if (g_file_test(user, G_FILE_TEST_IS_REGULAR)) {
+		return user;
+	}
+	g_free(user);
+	for (const char *const *dir = g_get_system_data_dirs(); !found && *dir; dir++) {
+		char *path = g_build_filename(*dir, "applications", id, NULL);
+		if (g_file_test(path, G_FILE_TEST_IS_REGULAR)) {
+			found = path;
+		} else {
+			g_free(path);
+		}
+	}
+	return found;
+}
+
+/* The ZacOS 9 Menu Items folder starts with an alias of each desk
+ * accessory, as Mac OS 9's Apple Menu Items did, so the menu is what the
+ * folder holds: throw one away, or move it to ZacOS 9 Menu Items
+ * (Disabled), and it's gone from the menu. `.zacos9-defaults` remembers
+ * which defaults were offered (SEEDED), so nothing taken out comes back;
+ * an item new in a later version has a higher `since` and is offered
+ * then. */
+#define SEEDED 3
+static void seed_menu_items(const char *items_dir) {
+	static const struct {
+		const char *name;
+		const char *ids[2]; /* the first installed one */
+		int since;
+	} defaults[] = {
+		{ "Bark Recorder", { "zacos9-barkrecorder.desktop" }, 1 },
+		{ "Calculator", { "zacos9-calculator.desktop" }, 1 },
+		{ "Dog Ears", { "zacos9-dogears.desktop" }, 1 },
+		{ "Jigsaw Puzzle", { "zacos9-jigsaw.desktop" }, 1 },
+		{ "Key Tags", { "zacos9-keytags.desktop" }, 1 },
+		{ "Notepad", { "zacos9-notepad.desktop" }, 1 },
+		{ "Pedigree", { "zacos9-pedigree.desktop" }, 1 },
+		{ "Photo Booth", { "zacos9-photobooth.desktop" }, 2 },
+		{ "Plotter", { "zacos9-plotter.desktop" }, 1 },
+		{ "Stash", { "zacos9-stash.desktop" }, 1 },
+		{ "Theme Installer", { "zacos9-themeinstaller.desktop" }, 3 },
+		{ "Terminal", { "foot.desktop", "org.codeberg.dnkl.foot.desktop" }, 1 },
+		{ "XTerm", { "debian-xterm.desktop", "xterm.desktop" }, 1 },
+	};
+	char *marker = g_build_filename(items_dir, ".zacos9-defaults", NULL);
+	char *text = NULL;
+	const int seeded = g_file_get_contents(marker, &text, NULL, NULL) ? atoi(text) : 0;
+	g_free(text);
+	if (seeded >= SEEDED || g_mkdir_with_parents(items_dir, 0700) != 0) {
+		g_free(marker);
+		return;
+	}
+	char *disabled = g_strconcat(items_dir, " (Disabled)", NULL);
+	for (size_t i = 0; i < sizeof(defaults) / sizeof(defaults[0]); i++) {
+		if (defaults[i].since <= seeded) {
+			continue;
+		}
+		char *alias = g_build_filename(items_dir, defaults[i].name, NULL);
+		char *off = g_build_filename(disabled, defaults[i].name, NULL);
+		struct stat st;
+		if (lstat(alias, &st) != 0 && lstat(off, &st) != 0) {
+			for (int k = 0; k < 2 && defaults[i].ids[k]; k++) {
+				char *found = find_desktop_file(defaults[i].ids[k]);
+				/* /usr/share/..., not a data folder's /usr/bin/../share */
+				char *target = found ? realpath(found, NULL) : NULL;
+				g_free(found);
+				if (target) {
+					if (symlink(target, alias) != 0) {
+						fprintf(stderr, "Could not add %s to the Zac menu\n", defaults[i].name);
+					}
+					free(target);
+					break;
+				}
+			}
+		}
+		g_free(alias);
+		g_free(off);
+	}
+	char version[16];
+	snprintf(version, sizeof(version), "%d\n", SEEDED);
+	g_file_set_contents(marker, version, -1, NULL);
+	g_free(disabled);
+	g_free(marker);
+}
+
+void launch_fill_logo_menu(struct mb_menu *menu, const struct app *apps, int n_apps) {
+	/* About and software tools are the top group in the Apple menu. */
+	with_kind(add_item(menu, "About This Computer…", true, ACT_ABOUT, NULL), PL_ICON_EXT_CHIP);
+	/* The app catalog over apt. */
+	{
+		char command[PATH_MAX + 64];
+		sibling_program("zacos9-store", command, sizeof(command));
+		with_kind(add_item(menu, "New Tricks", true, ACT_LAUNCH, command), PL_ICON_APPLICATION);
+	}
+	/* New ZacOS 9 releases and Debian's own updates. */
+	{
+		char command[PATH_MAX + 64];
+		sibling_program("zacos9-update", command, sizeof(command));
+		with_kind(add_item(menu, "Fetch Updates", true, ACT_LAUNCH, command), PL_ICON_EXT_OPENTRANSPORT);
+	}
+	/* Force Quit: the open applications, front-most first; the Finder
+	 * asks first, then has zacos9-wm end the one chosen. */
+	{
+		struct mb_menu *quit = calloc(1, sizeof(*quit));
+		for (int i = 0; i < n_apps; i++) {
+			if (!*apps[i].app_id || strcmp(apps[i].app_id, FINDER_APP_ID) == 0) {
+				continue;
+			}
+			char arg[512];
+			snprintf(arg, sizeof(arg), "force-quit %s %s", apps[i].app_id, apps[i].name);
+			struct mb_item *it = add_item(quit, apps[i].name, true, ACT_FINDER, arg);
+			if (it && menu_icon_for_app) {
+				it->icon_px = menu_icon_for_app(apps[i].app_id);
+			}
+			if (it && !it->icon_px) {
+				with_kind(it, PL_ICON_APPLICATION);
+			}
+		}
+		with_kind(add_item(menu, "Force Quit", quit->n > 0, ACT_NONE, NULL), PL_ICON_CAUTION);
+		menu->items[menu->n - 1].submenu = quit;
+	}
+	add_item(menu, NULL, false, ACT_NONE, NULL);
+	/* Classic Mac OS in an emulator; the Finder explains what's missing. */
+	with_kind(add_item(menu, "Old Dog", true, ACT_FINDER, "classic"), PL_ICON_CLASSIC);
+	/* Screen Snapshot: drag out part of the screen; it goes on the Desktop
+	 * as "Picture N.png" and on the clipboard. */
+	{
+		char command[PATH_MAX + 64];
+		sibling_program("zacos9-snapshot", command, sizeof(command));
+		with_kind(add_item(menu, "Screen Snapshot", true, ACT_LAUNCH, command), PL_ICON_EXT_CAMERA);
+	}
+	/* Windows programs, installed through Wine. */
+	{
+		char command[PATH_MAX + 64];
+		sibling_program("zacos9-wininstall", command, sizeof(command));
+		with_kind(add_item(menu, "Windows Installer", true, ACT_LAUNCH, command), PL_ICON_WINDOWS);
+	}
+	/* The Network Browser: connecting to other computers, as Mac OS 9's
+	 * own Apple Menu Item of the same name did. */
+	{
+		char command[PATH_MAX + 64];
+		sibling_program("zacos9-netbrowser", command, sizeof(command));
+		with_kind(add_item(menu, "Neighbourhood", true, ACT_LAUNCH, command), PL_ICON_EXT_APPLETALK);
+	}
+	/* Printer Picker: Mac OS 9's Chooser, which was here too. */
+	{
+		char command[PATH_MAX + 64];
+		sibling_program("zacos9-printerpicker", command, sizeof(command));
+		with_kind(add_item(menu, "Printer Picker", true, ACT_LAUNCH, command), PL_ICON_EXT_PRINTMONITOR);
+	}
+	/* Control Panels, as a hierarchical menu. */
+	with_kind(add_item(menu, "Control Panels", true, ACT_NONE, NULL), PL_ICON_CONTROL_PANELS);
+	struct mb_menu *panels = calloc(1, sizeof(*panels));
+	menu->items[menu->n - 1].submenu = panels;
+	/* The installed control panels, by name (lib/controlpanels.h). */
+	size_t count = 0;
+	struct pl_control_panel *panel_list = pl_control_panels(&count);
+	bool toy_box_added = false;
+	for (size_t i = 0; i < count; i++) {
+		char command[PATH_MAX + 64];
+		sibling_program(panel_list[i].program, command, sizeof(command));
+		strncat(command, panel_list[i].args, sizeof(command) - strlen(command) - 1);
+		/* The Toy Box (the Sniffer's own window) goes in its place by name. */
+		if (!toy_box_added && strcmp(panel_list[i].name, "Toy Box") > 0) {
+			with_kind(add_item(panels, "Toy Box", true, ACT_FINDER, "toy-box"), PL_ICON_FOLDER);
+			toy_box_added = true;
+		}
+		with_kind(add_item(panels, panel_list[i].name, true, ACT_LAUNCH, command), panel_list[i].icon);
+	}
+	pl_control_panels_free(panel_list, count);
+	add_favorites(menu);
+	recent_fill_menu(menu);
+
+	char items_dir[PATH_MAX];
+	config_path("ZacOS 9 Menu Items", items_dir, sizeof(items_dir));
+	seed_menu_items(items_dir);
+	populate_items_menu(menu, items_dir, 0);
+	add_automated_tasks(menu);
+}

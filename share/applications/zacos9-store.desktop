@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Software
+Comment=Install and remove applications
+Exec=zacos9-store
+Categories=System;
+OnlyShowIn=ZacOS9;

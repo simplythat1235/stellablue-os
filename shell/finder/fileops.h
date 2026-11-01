@@ -1,0 +1,75 @@
+#pragma once
+
+#include <functional>
+#include <QMimeData>
+#include <QPoint>
+#include <QStringList>
+#include <vector>
+
+#include "items.h"
+
+class QWidget;
+class QDropEvent;
+
+/* Move or copy items into a folder, Finder style:
+ * - within one disk the items move; between disks they are copied;
+ * - Option (Alt) forces a copy; a copy into the same folder is named
+ *   "<name> copy", "<name> copy 2", ...
+ * Shows a responsive Platinum progress dialog with Stop for the batch.
+ * Stop keeps completed items and rolls back the current incomplete copy.
+ * Returns the folders whose contents changed; conflicts are reported and
+ * never overwrite existing items. */
+QStringList transferItems(const QStringList &paths, const QString &destDir, bool forceCopy,
+	bool *finished = nullptr);
+/* `suffix` follows the name (Make Alias: " alias"; Favorites: none). */
+QString createAlias(const QString &target, const QString &destDir, const QString &name,
+	const QString &suffix = QStringLiteral(" alias"));
+/* An alias of one of the Finder's own items (`vfs:/applications`), which
+ * has no file to point at. It opens that item and shows in italics like
+ * any alias, but has no identity record to reconnect. */
+QString createVirtualAlias(const QString &vfsPath, const QString &destDir, const QString &name,
+	const QString &suffix = QStringLiteral(" alias"));
+
+/* Start dragging `items`, shown as dotted outlines (Mac OS 8 dragged
+ * outlines, not pictures). `itemOrigins` are the items' icon positions in
+ * `source` coordinates; `pointer` is where the drag began. */
+/* A drag of icons that only move about their own window (the Macintosh
+ * view's virtual items: no files to hand anywhere). */
+inline constexpr char ICON_MOVE_MIME[] = "application/x-zacos9-icon-move";
+inline constexpr char ALIAS_ITEMS_MIME[] = "application/x-zacos9-alias-items";
+inline constexpr char APPLICATION_ITEMS_MIME[] = "application/x-zacos9-application-items";
+/* Startup Items being dragged out: a JSON array of desktop-file IDs. */
+inline constexpr char STARTUP_ITEMS_MIME[] = "application/x-zacos9-startup-items";
+/* Control panels being dragged between Control Panels and its (Disabled)
+ * folder: a JSON array of their desktop entries' IDs. */
+inline constexpr char PANEL_ITEMS_MIME[] = "application/x-zacos9-panel-items";
+/* Extensions being dragged between Extensions and its (Disabled) folder:
+ * a JSON array of their catalog keys. */
+inline constexpr char COLLAR_MODULE_ITEMS_MIME[] = "application/x-zacos9-collar-module-items";
+inline constexpr char MODULE_ITEMS_MIME[] = "application/x-zacos9-module-items";
+inline constexpr char FONT_ITEMS_MIME[] = "application/x-zacos9-font-items";
+/* With ICON_MOVE_MIME: the desktop's disks and Trash being moved about it,
+ * which carry nothing anywhere else. */
+inline constexpr char PLACE_ONLY_MIME[] = "application/x-zacos9-place-only";
+/* Caller owns the file URLs or private virtual-item alias payload. */
+QMimeData *itemDragMime(const std::vector<Item *> &items);
+void startItemDrag(QWidget *source, const std::vector<Item *> &items,
+		const std::vector<QPoint> &itemOrigins, QPoint pointer, bool placeOnly = false);
+
+/* Paths carried by a Finder drag (or any file drag). */
+QStringList draggedPaths(const QMimeData *mime);
+
+/* Drop onto `target` (a folder, the disk or the Trash item) or, with
+ * target == nullptr, into `folder`. Notifies the Finder of changes. */
+void dropItems(QDropEvent *e, const Item *target, const QString &folder);
+/* Text, a picture or links dragged in from another program (clippings.h). */
+bool isClippingDrop(const QDropEvent *e);
+/* Makes them in `target` if it's a folder, else in `folder`: their paths. */
+/* `placed` (before the folder is shown again) may say where they go. */
+QStringList dropClippings(QDropEvent *e, const Item *target, const QString &folder,
+	const std::function<void(const QString &into, const QStringList &made)> &placed = {});
+/* Stop these Startup Items (desktop-file IDs) opening at login: the
+ * Trash gesture on them, by drag or Move To Trash. */
+void removeFromStartupItems(const QStringList &ids);
+bool trashFontFiles(const QStringList &files);
+void refreshUserFontCache(const QString &directory);

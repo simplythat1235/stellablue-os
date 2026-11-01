@@ -1,0 +1,758 @@
+# The Macintosh view of this computer
+
+The Finder shows a startup disk holding a System Folder, Applications and
+Documents. Debian's own hierarchy is not moved, renamed or hidden to
+achieve that: `/usr`, `/etc`, `/bin`, `/var`, `/lib`, `/proc` and `/sys`
+are exactly where the system put them, and every other program sees them
+as it always did. What changes is only what the Finder draws.
+
+The model lives in [`shell/files/vfs.h`](../shell/files/vfs.h); the
+application list it draws on is in
+[`shell/files/appdb.h`](../shell/files/appdb.h). No FUSE filesystem is
+mounted: nothing outside the Finder needs this view, so nothing outside
+the Finder pays for it.
+
+## Mounted ZacOS 9 disks
+
+A disk containing an installed ZacOS 9 system is shown the same way when it is
+mounted from outside this computer. Detection is deliberately conservative:
+the disk must have `/etc/zacos9/disk-name`, and its
+`/var/lib/dpkg/status` must record `zacos9` as `install ok installed` with a
+version. Reads from the mounted disk are bounded because it is untrusted. The
+disk's name comes from its `disk-name`; the version comes from dpkg.
+
+The mounted disk's Finder root shows **System Folder**, **Applications** and
+**Home**, and not Debian's Unix hierarchy. Applications, System Folder and Home
+open folders on that disk; System Folder maps its familiar names onto `usr`,
+`usr/lib`, `usr/bin`, `usr/share`, `etc` and `etc/xdg/autostart`. Home prefers
+the same user name as the current session, else that disk's only home folder.
+The whole presentation is read-only: Finder never writes to the mounted disk,
+renames or moves its folders, or accepts drops there. Unmounting the disk
+removes its view. There is no FUSE mount; these are entries in the Finder's
+model.
+
+## Desktop files and aliases
+
+The Desktop is **not** part of the virtual Macintosh hierarchy. It displays
+the real XDG Desktop directory (`~/Desktop` by default), alongside the startup
+disk, mounted disks and Trash icons. Files saved there by other applications
+appear automatically; New Folder, renaming, copying and moving work on the
+same files.
+
+File > Make Alias creates a filesystem symbolic link. Drag an application,
+a backed folder, or one of the Finder's own items from the Macintosh view to
+Desktop to create an alias without moving its package or original directory.
+Applications, the System Folder, control panels and the contents of the
+Finder's own folders can be aliased too: their link names the virtual path
+(`zacos9-vfs:vfs:/applications`) instead of a file, since there is no file to
+point at. Such an alias opens that item, Show Original reveals it in its own
+folder, and Get Info names it; it has no identity record to reconnect, so if
+the item is gone the alias simply reports that. For ordinary files and
+folders, Command-Option-drag creates an alias; Option-drag copies. Aliases can
+also be moved between real folders and Desktop. Copying an alias preserves
+the link, and moving it to Trash does not delete the original.
+Aliases inherit the resolved original's icon, including application icons in
+both icon and list views, while retaining their own name and italic alias label.
+Alias chains use the final target's icon; missing or looping targets show a
+generic document icon.
+
+Folder aliases open as folders and accept file drops. The standard application
+file chooser lists Desktop folder aliases alongside disks, using their Desktop
+names. Choose an alias to open files, select its target folder or save inside
+it, including folders on mounted AFP and Windows/SMB servers. They can also be
+opened through Home/Desktop in the chooser's Macintosh view. Saves through an
+alias go into its target directory; applications receive real target paths.
+Unavailable or replaced originals report an error instead of opening Home.
+Aliases stay ordinary symbolic links, so existing ones keep working. Beside
+each alias, `<folder>/.alias/<name>` (hidden) records the original's filesystem
+ID, device, inode, name and parent folder (`shell/files/alias.cpp`). The
+filesystem ID, rather than Linux's transient device number, identifies the
+disk across reboots and remounts. Older records gain it on use; a changed
+device number alone is accepted only when the inode and recorded canonical
+path still match. Filesystems without an ID retain device-number matching.
+Open and Show
+Original resolve through it: if the link no longer resolves, Finder looks for
+the same inode in a few nearby folders (the original's folder and its parent,
+the alias's folder, Desktop, Trash; same disk, depth 3, at most 4000 entries,
+no symlinks followed, no index) and repairs the link atomically. If the path
+now holds a different item ("replaced"), or nothing is found, Finder says so
+and offers **Fix Alias…** to choose a new original; it never substitutes or
+creates one. Loops (including self-links) are detected and refused. Plain
+symlinks gain a record on first use. Records follow an alias through
+move/copy/rename, but an alias moved outside Finder loses its record and
+behaves like a plain symlink. Get Info shows the alias's original and state.
+Target permissions are never changed. Reconnection works only on the same disk;
+a target moved to another disk or beyond the search area needs Fix Alias….
+
+At login, `zacos9-desktop-places` registers Desktop with XDG user directories
+and GTK bookmarks, and creates a private **Zacintosh HD** workspace at
+`$XDG_DATA_HOME/zacos9/Zacintosh HD` (normally
+`~/.local/share/zacos9/Zacintosh HD`). Its `System Folder` and `Applications`
+directories are user-owned document storage, not aliases to the real system
+or installed applications; files saved there cannot replace or change them.
+The GTK and Qt 6 standard save dialogs prefer Desktop when they otherwise
+would open at Home/current working directory; application-selected locations
+elsewhere remain unchanged. Their places include Desktop and the private
+Zacintosh HD workspace; Qt also adds currently mounted filesystems, while
+GTK's places list includes GIO-mounted local/network disks. GTK portal-backed
+choosers use the GTK backend and the registered places. The Finder's
+mounted-drive icons remain real mounted drives; its virtual Zacintosh HD view
+described above is distinct from this private save workspace. Ordinary mount
+paths keep their normal filesystem permissions. Applications with custom
+file pickers are outside this integration.
+
+## Picture previews
+
+Picture files show their picture instead of the document icon: on the
+Desktop, in icon and list views, in Find results and in Get Info. Any file
+whose type is `image/*` and which Qt can read (PNG, JPEG, GIF, BMP, WebP,
+SVG and the other installed image formats) qualifies; aliases show their
+original's picture. The preview is fitted into the icon square without being
+enlarged, framed in black on white, and follows a camera photo's recorded
+orientation. Files larger than 256 MB and unreadable pictures keep the
+document icon.
+
+Previews are decoded on two worker threads (`shell/files/thumbnails.cpp`),
+never while painting: the document icon shows until the preview is ready,
+then the window repaints. The 128-pixel previews are stored in the shared
+[freedesktop thumbnail cache](https://specifications.freedesktop.org/thumbnail-spec/latest/)
+(`$XDG_CACHE_HOME/thumbnails/normal`, private to the user) with the
+picture's URI and modification time, so GTK software reuses them and an
+edited picture gets a new preview. A separate in-memory cache holds the
+icons for the most recent 2,000 pictures. Unlike Mac OS 9's preview icons,
+nothing is written to the picture file itself.
+
+## Document names and icons
+
+File names are shown without their extension: "Read Me.txt" appears as
+"Read Me", "Backup.tar.gz" as "Backup". Only a suffix the shared-mime-info
+database knows is hidden, so "Notes.v2", "Makefile" and dot-files keep their
+whole names, and folders are always shown whole. The hidden name is used for
+icon labels, list and Find rows, Get Info and alerts; the real file name is
+still what positions, selection, aliases and the Trash remember. Renaming
+edits the visible name and keeps the hidden extension ("Read Me" → "Notes"
+renames `Read Me.txt` to `Notes.txt`); typing a known extension yourself
+("Notes.md") uses it instead.
+
+A document's icon is a blank Platinum page bearing the icon of the
+application that opens it, as Mac OS drew an application's documents.
+Picture previews take precedence. A type with no application, or whose
+application has no icon, keeps the plain document icon. Aliases show their
+original's.
+
+There is no association table of ZacOS 9's own (`shell/files/fileassoc.cpp`).
+A file's type is its MIME type (`QMimeDatabase`). The application for it is
+the [freedesktop default](https://specifications.freedesktop.org/mime-apps-spec/latest/)
+that GIO resolves from the `mimeapps.list` files (the user's, then
+`zacos9-mimeapps.list` and the system's) and the desktop entries'
+`MimeType=` keys. Opening a document asks GIO for the same default, so the
+icon always shows what opens it.
+
+A few document kinds are ZacOS's own rather than a MIME association: Mac
+disk images, Windows executables and classic applications each get their own
+icon and "kind" name, and so do console game files — cartridges and discs —
+recognized by `romIconKind` in `shell/files/items.cpp` (extension, plus the
+file's own bytes where an extension is shared: a `.md` Markdown file is never
+a Sega cartridge, and a bare `.bin` is never a disc). Opening one still goes
+through GIO: Game Player (a ZacOS extra) declares the ROM MIME types, so
+double-clicking a cartridge plays it.
+
+The **File Exchange** control panel (`zacos9-fileexchange`, in Control Panels
+and the Apple menu) lists every kind of document an installed application
+can open, with its extensions and the application that opens it now. Change…
+offers every application that can open it and writes the choice through GIO
+to the user's `$XDG_CONFIG_HOME/mimeapps.list`. The candidates include
+applications that list the type in their own `MimeType=` but aren't in
+`mimeinfo.cache` yet.
+
+The Finder caches each type's default and document icon. It drops the cache
+and repaints when any association file changes: an edit in place, an atomic
+replacement, or a list created where there was none (it watches the
+directories and the files, re-arms after each change, and waits 250 ms for
+things to settle). It does the same when applications are installed or
+removed.
+
+## File-transfer status
+
+Copying, moving, Option-drag copying and File > Duplicate use a movable
+Platinum status dialog showing the current filename, destination, progress
+bar and percentage. Folder copies include their contents and hidden files;
+aliases remain links and classic resource-fork companions travel with their
+files. Preparing/counting and copying run off the GUI thread so the dialog
+continues to respond.
+
+Choose **Stop**, press Escape or Command-period to stop a batch. Completed
+items stay in the destination. The current incomplete copy is removed, and
+its original is not deleted. Same-disk moves are renames: an individual
+rename finishes atomically, then Stop prevents further items from moving.
+Cross-disk drags retain their copy semantics. Closing the progress window
+also requests Stop and waits for cleanup rather than abandoning the worker.
+Unreadable files, name conflicts and cleanup failures produce explicit
+alerts; existing destination items are never overwritten.
+
+Finder-originated drops release their drag grab before the progress dialog
+opens so its Stop button can receive input. External drops are not reported
+as successfully completed if a transfer is stopped or fails.
+
+## What you see
+
+```
+Zacintosh HD
+├── System Folder
+│   ├── Appearance        → ~/.local/share/zacos9/appearance
+│   │   ├── Desktop Patterns → custom user-created tiles and classic Mac pattern files
+│   │   ├── Wallpaper     → ~/.local/share/zacos9/appearance/Wallpaper
+│   │   ├── Themes        → compatible appearance preset JSON files
+│   │   └── Sound Themes  → custom WAV themes and classic resource-fork sound sets
+│   ├── Control Panels      (generated: the desktop entries marked X-ZacOS9-ControlPanel)
+│   ├── Extensions         (generated, read-only driver/module status)
+│   ├── Sounds             (generated, read-only aliases to user/system sounds)
+│   ├── Startup Items      (generated: enabled autostart entries; drop apps in, drag to Trash)
+│   ├── Application Support (generated, read-only aliases to support resources)
+│   ├── Device Drivers     (generated, read-only loaded kernel modules)
+│   ├── Network            (generated, read-only interface status)
+│   ├── System Logs        (generated, protected informational view only)
+│   ├── Software Components (generated, read-only installed app/package metadata)
+│   ├── System Information (generated launcher, read-only status window)
+│   ├── Extensions Manager (generated launcher, read-only status window)
+│   ├── Fonts               (generated: available font faces; drop in to install, move out to uninstall)
+│   └── Preferences       → ~/.config
+├── Applications            (generated: user-installed applications)
+│   ├── Utilities           (generated: shipped tools such as balenaEtcher and
+│   │                        Disk Setup, and utilities the user installed)
+│   └── Mousepad
+│       ├── Mousepad        launches it
+│       └── Preferences     one of its Desktop Actions
+├── Home                  → ~ (Documents, Downloads, Desktop, everything of the user's)
+└── (folders you make: File > New Folder in the disk's window; each is a real
+     directory under ~/.local/share/zacos9/finder/folders; Trash removes an empty one)
+```
+
+A folder with an arrow stands for a real directory. Opening one opens
+that directory, and from there everything is an ordinary file: the
+virtual layer is only as deep as the curated part. The directory is
+created the first time it is opened if it isn't there yet.
+
+Desktop Patterns is created automatically by the desktop and Appearance panel.
+Registry versions 5 and 6 add Desktop Patterns and the separate Wallpaper
+backed nodes to existing registries without removing user changes. Version 7
+moves Wallpaper under Appearance, retaining node overrides and existing files.
+If the old folder cannot be moved (including an existing destination), the
+catalog retains the old folder and logs the conflict rather than overwriting files.
+Version 8 adds Themes and Sound Themes under Appearance.
+Version 9 moves the shipped Utilities folder into System Folder and preserves
+its custom name and the renamed titles/labels of system launchers. Version 10
+adds read-only System Folder resource providers (Sounds, Startup Items,
+Application Support, Device Drivers, Network, System Logs, Software Components
+and Extensions) and built-in launchers for System Information and Extensions
+Manager.
+Version 14 turns Fonts into a generated font catalog, preserving its folder ID,
+custom name, labels and remembered window/icon positions. Existing font files
+are not moved. The old Fonts node's `backing` field is replaced by the catalog;
+new installations use the user's standard XDG font directory.
+Version 21 moves Utilities back into Applications, where it lists only the
+tools ZacOS 9 ships and the utilities the user installed themselves; the
+off-by-default root Utilities folder is removed in favour of it.
+See
+[custom desktop patterns](user-guide.md#custom-desktop-patterns) and
+[desktop wallpaper](user-guide.md#desktop-wallpaper) for supported formats,
+placement choices and import limits.
+
+## Fonts
+
+**System Folder > Fonts** lists the fonts available through Fontconfig, including
+both user and system installations. Items use the font's internal full name,
+not the source filename. Each name is rendered from that exact file and face
+with FreeType and HarfBuzz at 12 logical pixels, using the same monochrome
+canvas and integer scaling as the rest of Finder. Missing characters fall back
+individually to the normal views font. Unreadable or unsupported preview faces
+log a warning and use the views font. Other Finder text is unchanged.
+
+Icon, small-icon, button and list views measure the rendered labels for
+selection, clipping and hit testing. Collection files have an item for each
+face, but all of those items refer to the same installation file. A face's
+stable ID includes its source path and face index; duplicate family names do
+not collapse distinct files.
+
+| Gesture | Effect |
+|---|---|
+| Drop a `.ttf`, `.otf`, `.ttc` or `.otc` file into Fonts | Validate its signature and font metadata, then install in `$XDG_DATA_HOME/fonts` (normally `~/.local/share/fonts`). |
+| Option-drag into Fonts, or drag from a copy-only source | Install a copy, leaving the source intact. |
+| Move a user font out to a real folder or Desktop | Move its installation file out, uninstalling it. |
+| Option-drag out, or drag to another disk | Export a copy; the installed file stays in place. |
+| Drag a user font to Trash / choose Move To Trash | Uninstall by moving its installation file to Trash. Put Away restores it. |
+| Drag a protected font | Offer copy/export only. Trash/removal attempts report that it cannot be removed. |
+| Drop installed items back into the Fonts view | Arrange their icons within that view; do not reinstall them. |
+
+Finder only uninstalls files owned by the current user under the XDG font
+directory or legacy `~/.fonts`, including subdirectories. Directory links cannot
+escape those roots. System and other font locations are never uninstalled by
+the font-item gesture, even if their permissions happen to permit writing.
+Removing a collection asks for confirmation because it removes **every face
+in that file**; selecting several faces transfers the file only once.
+
+Installation never replaces an existing filename. Invalid files, symbolic
+links, archives, Debian packages, folders and classic Macintosh font suitcases
+are rejected rather than copied into the active font directory. Font copies are
+staged privately and published by rename, so an incomplete copy is not installed.
+Failed or canceled transfers retain the source.
+
+Font changes made through Finder refresh `fc-cache` asynchronously after both
+installation and removal (including menu removal and Put Away). Refreshes are
+serialized per changed directory, with a 30-second timeout and visible errors;
+cache failure does not pretend the completed file operation was undone. A
+debounced filesystem watcher invalidates the catalog and preview masks after
+external font changes, watching existing font directories/files and the nearest
+ancestor of missing user directories. Watches are bounded at 8,192 paths;
+watch failures are logged, and closing/reopening Fonts rescans the catalog.
+Applications already using a removed font may retain it until they refresh
+their font list or restart.
+
+The standard file chooser still exposes Fonts as the real writable user font
+directory, not as Finder's generated face items. It does not install fonts
+merely by browsing them.
+
+Implementation: [`fonts.cpp`](../shell/files/fonts.cpp),
+[`vfs.cpp`](../shell/files/vfs.cpp), [`items.cpp`](../shell/files/items.cpp)
+and [`fileops.cpp`](../shell/finder/fileops.cpp). Build dependencies include
+Fontconfig, FreeType and HarfBuzz; the runtime cache tool is `fontconfig`'s
+`fc-cache`. The `finder-fonts` test uses temporary directories, redistributable
+DejaVu fonts and a generated two-face collection; no reference/Apple assets
+are included.
+
+## How applications are found
+
+Through GIO, so the desktop entry specification is followed rather than
+approximated:
+
+- XDG data directory precedence: an entry in `$XDG_DATA_HOME` replaces
+  the one of that id in `/usr/share`, and only one of them shows.
+- `Hidden=true` and `NoDisplay=true` entries are left out.
+- `OnlyShowIn` / `NotShowIn` are checked against `$XDG_CURRENT_DESKTOP`,
+  which the session sets to `ZacOS9`.
+- An entry whose `TryExec` names a program that isn't installed is left
+  out. `Exec` is parsed by GIO, but its executable is not preflighted when
+  `TryExec` is absent; a valid entry can therefore fail when launched if its
+  application is unavailable.
+- `Exec` field codes, `Path`, `Terminal` and `DBusActivatable` are
+  honoured at launch, by GIO. **`Exec` is never handed to a shell.**
+- Desktop Actions appear beside the application in its folder.
+- Localized names and comments: GIO reads the one for the current
+  locale (`Name[de]=`, and the rest) the same way it reads everything
+  else about the entry.
+
+Flatpak and Snap applications appear with the rest, because they install
+desktop entries like everything else. A package with several desktop
+entries gets a folder for each: one package is not assumed to be one
+application. Debian desktop-file ownership determines installation status
+and uninstall identity, not how many application entries a package supplies.
+
+An application's identity is its **desktop file ID** (`mousepad.desktop`,
+`org.gnome.Nautilus.desktop`), never its display name. Names are
+translated, change between releases, and repeat between packages. When
+two entries do share a name, each is told apart by its id — "Files
+(org.gnome.Nautilus)" beside "Files (nemo)".
+
+Nothing is copied. An application's folder and the launcher in it are
+entries in this model; the package's files stay where dpkg put them.
+
+### User applications versus system utilities
+
+Applications excludes the desktop-entry baseline recorded on the installation
+image and Debian packages marked `Auto-Installed: 1` in
+`/var/lib/apt/extended_states`. Package ownership is checked against the desktop
+file itself, not the executable that may merely wrap or launch another app.
+Explicitly installed Debian apps, user-local launchers, Wine shortcuts and
+Flatpak exports remain eligible. Changes to apt's automatic/manual marks
+refresh the view without requiring a new launcher file or a login restart.
+
+**Applications > Utilities** lists the tools ZacOS 9 ships (`X-ZacOS9-Utility`,
+such as Disk Setup and balenaEtcher) and Utility-category applications the user
+installed themselves. It is a folder inside Applications, pinned first, and
+none of these appear loose in Applications too. Entries with `System`,
+`Settings` or `FileManager` categories (qps, PCManFM, desktop/screen-saver
+settings, print settings) are system parts rather than user applications: they
+are left out of both folders and stay reachable from Control Panels and the Zac
+menu. The ordinary `Utility` category alone is not enough for a packaged
+baseline application; an app the user installed as a utility is filed there.
+ZacOS's own control panels remain in Control Panels.
+
+This uses installation metadata, not a historical record of user intent:
+`apt-mark manual` makes a non-baseline application eligible, while packages
+marked manual by another installer are indistinguishable from explicit user
+installs. A dependency can provide several launchers; the filter applies to
+its package, not to a translated application name. No packages are removed,
+and system tools remain launchable from Control Panels and the Zac menu.
+
+### Icon
+
+The application's own icon is resolved through the freedesktop icon
+theme spec (`QIcon::fromTheme`, tried against each name GIO offers in
+its own preference order — the icon itself, then a symbolic fallback),
+rendered to 32x32 and 16x16 straight-alpha ARGB and drawn with real alpha
+blending, not the 1990s icon set's plain on/off transparency. Nothing is
+cached to disk: the cost is one theme lookup per application per process
+lifetime, paid again only when an application is newly discovered.
+
+When nothing resolves — no icon named, the name doesn't exist in any
+theme, or the process has no GUI platform to rasterize into at all (a
+headless tool, not the Finder itself) — the generic application icon is
+drawn instead. A Desktop Action always keeps the generic document icon:
+it isn't the application itself.
+
+### Where it came from
+
+For Get Info, once there is one (see "What the Finder will and won't
+do" below): the package owning the desktop file, or, for an unowned launcher,
+the application's own executable (`dpkg -S` on its canonical path, resolving the symlinks a
+merged-`/usr` system has — `dpkg`'s file database has `/usr/bin/x`, not
+the `/bin/x` most `Exec=` lines actually name), then its version
+(`dpkg-query`). Looked up once per executable path and kept for the life
+of the process.
+
+A Flatpak export is read from its own `X-Flatpak` key instead: its
+`Exec=` runs the `flatpak` program, and attributing the application to
+whatever package owns *that* would be wrong, not merely approximate.
+Neither is guessed when there is nothing to find it from (a desktop
+entry dropped in by hand, with an executable dpkg doesn't know).
+
+## The registry
+
+`~/.local/share/zacos9/finder/vfs.json`, written with the default
+mapping the first time the Finder runs, and yours to edit after that.
+
+The startup disk's name: `volume.name` once the user renames it; until then
+the name it was installed with (`/etc/zacos9/disk-name`, written by
+`zacos9-install`), else "Zacintosh HD".
+
+```json
+{
+  "version": 21,
+  "volume": {},
+  "showUnixVolume": false,
+  "nodes": [
+    { "id": "system-folder", "name": "System Folder", "kind": "folder",
+      "icon": "system-folder", "order": 0 },
+    { "id": "system-folder/fonts", "name": "Fonts", "kind": "fonts", "icon": "sf-fonts" },
+    { "id": "system-folder/fonts/language-kits", "name": "Language Kits", "kind": "fonts" },
+    { "id": "applications", "name": "Applications", "kind": "apps", "order": 1,
+      "icon": "applications-folder" },
+    { "id": "applications/utilities", "name": "Utilities", "kind": "apps",
+      "icon": "sf-utilities", "order": -1 }
+  ],
+  "overrides": {}
+}
+```
+
+`applications/utilities` is a generated folder like Applications itself: the
+registry supplies its place and name, and the Finder fills it with the shipped
+and user-installed utilities.
+
+A node's fields:
+
+| Field | What |
+|---|---|
+| `id` | Stable and unique. `/` separates it from its parent, so `system-folder/fonts` sits in `system-folder`. |
+| `name` | What the Finder shows. |
+| `kind` | `folder` (curated), `backed` (real directory), `apps`, `panels`, `fonts` (installed font catalog: `system-folder/fonts` shows the free fonts that stand in for Mac OS 9's, once each, and the user's own; a `fonts` node whose id ends in `/language-kits` shows every other installed font; see `fontFolderFaces` in `shell/files/fonts.h`), `resource`, `launcher`, `unix`. |
+| `backing` | For `backed`. `$HOME`, `$XDG_CONFIG_HOME`, `$XDG_DATA_HOME` and `$XDG_DOCUMENTS_DIR` are expanded. |
+| `provider` | For `resource`: fixed provider id (`sounds`, `startup-items`, …), never a command or arbitrary path. |
+| `action` | For built-in `launcher` rows: trusted internal actions (`system-information`, `extensions-manager`) only. |
+| `icon` | `folder`, `system-folder`, `control-panels`, `disk`, `application`, `document`. |
+| `visible` | `false` hides it without deleting it. |
+| `order` | Where it sits among its siblings before the user moves it; ties go by name. |
+| `categories`, `excludeCategories` | For `apps`: keep only these XDG categories, then drop these. |
+
+Ids, not names, are what everything else refers to: a window, a
+remembered icon position and a label all follow the id. So renaming an
+item leaves its window where it was and its icon where you put it, and a
+package upgrade that changes an application's display name doesn't
+scatter your desktop.
+
+### Things you might want to change
+
+- **Rename the disk**: `"volume": { "name": "Work HD" }`.
+- **Point Documents elsewhere**: change that node's `backing`.
+- **Move Utilities**: change `applications/utilities`'s `order`, or give it
+  another parent; `applications` still leaves its contents out.
+- **Add a folder of your own**: add a node with a new `id`; migration
+  keeps it.
+
+### Overrides
+
+`overrides` holds what the Finder itself writes: renames, labels, and
+items hidden from a menu. It is keyed by node id, so it also covers
+generated nodes, which aren't in `nodes` at all.
+
+```json
+"overrides": {
+  "applications/mousepad.desktop/launch": { "name": "Text Editor", "label": 2 }
+}
+```
+
+Overrides are applied last and win over everything. An override left
+behind for an application that has since been removed is ignored, and
+starts working again if that application comes back.
+
+## Migration
+
+The registry carries a `version`. When the Finder finds an older one it
+adds the nodes the running version expects, keeps every node and
+override already there, writes the new version back, and leaves the file
+otherwise as it was. Nothing you added is dropped, and a node you deleted
+on purpose comes back only if a later version introduces it again. A file
+that is missing or unreadable is replaced with the default mapping.
+
+## Refreshing
+
+The Finder watches the XDG application directories. A change settles for
+a moment before it is read, because installing a package writes many
+files and because GIO drops its own cached list only once its file
+monitors have been served. `Finder` also takes a `refresh` command for
+when something appears without the directories changing in a way the
+watcher sees.
+Missing launcher directories are monitored through their nearest existing
+ancestor, so the first Flatpak installation can create its export tree after
+Finder starts and still appear automatically. GIO application-list change
+notifications also trigger the same settled refresh. Newly created icon-theme
+directories are added when the application list reloads. No launcher copies or
+login restart are needed; XDG precedence and hidden-entry rules still apply.
+
+System Folder resource providers are lazily enumerated when opened. They do not
+recursively scan `/proc`, `/sys` or `/usr/lib` during ordinary navigation.
+Provider identities are allowlisted in code; registry rows can select only known
+providers and fixed built-in actions.
+
+## Read-only resource providers
+
+Resource providers are virtual collections and informational entries, not copies
+of system files. They support three kinds of entries:
+
+- **Filesystem alias**: read-only alias to an allowlisted real source.
+- **Virtual collection**: generated grouping with no single source path.
+- **Information item**: metadata/status with no openable file source.
+
+For safety, provider aliases are canonical-path checked against allowlisted
+roots, reject broken/out-of-root/looping symlinks, and never expand into
+write-enabled virtual folders. Operations such as rename, label, drop and trash
+are disabled for provider items.
+
+Current providers:
+
+- **Sounds**: user and system sound roots (`$XDG_DATA_HOME/sounds`,
+  `/usr/share/sounds`) as read-only aliases.
+- **Startup Items**: enabled autostart desktop entries, resolved per the
+  FreeDesktop Autostart spec (`shell/files/autostart.cpp`, GKeyFile): the user
+  directory overrides `XDG_CONFIG_DIRS` entries by desktop-file ID,
+  `Hidden=true` and
+  `X-GNOME-Autostart-enabled=false` disable, `OnlyShowIn`/`NotShowIn` are checked
+  against `XDG_CURRENT_DESKTOP`, `TryExec` must resolve to an executable, and
+  GIO parses and launches `Exec` according to the desktop-entry specification.
+  Distinct IDs remain distinct even when their commands match. Command text is
+  not exposed. Each item is keyed by its desktop-file ID and shows the
+  application's icon when that ID is an installed application.
+
+  Startup Items is the one provider folder that takes drops
+  (`autostartAddApplication`, `autostartRemove`):
+  - Dropping an application on the folder or into its window makes it open
+    at login. The application can come from Applications, an alias to one,
+    or a `.desktop` file.
+    - If an entry with that ID is disabled, it is turned back on.
+    - Otherwise the application's own desktop entry is copied to
+      `$XDG_CONFIG_HOME/autostart/<id>`. The copy drops `Hidden`,
+      `X-GNOME-Autostart-enabled`, `OnlyShowIn` and `NotShowIn`, since the user
+      asked for it here, and gains `X-ZacOS9-Startup-Item=true`.
+    - The copy is checked before anything is written.
+    - A missing program or a non-application is refused with an alert, and
+      the dropped item never moves.
+  - Dragging items to the Trash, or Move To Trash, stops them opening at login.
+    Startup items drag as their IDs, never as paths. Dropping one anywhere
+    else does nothing.
+    - An entry only the user has is moved to the Trash. Put Away, or dragging
+      it back into Startup Items, restores it; dragging it back also removes
+      it from the Trash.
+    - An entry from a system directory gets a `Hidden=true` user override;
+      the system file is never touched.
+  - The folder refreshes through the existing autostart-directory watcher.
+- **Application Support**: allowlisted user/system support roots as read-only
+  aliases.
+- **Device Drivers**: every loaded kernel module, with startup-module metadata,
+  informational only.
+- **Extensions**: a curated view of the same modules
+  (`shell/files/extensioncatalog.cpp`). Each entry gives a friendly name, an
+  icon and a one-line description, and groups the modules behind it (for
+  example "HDMI Sound" covers `snd_hda_codec_hdmi`). Only entries with a loaded
+  module appear. Helper libraries and plumbing modules are left out on purpose;
+  they still show up under Device Drivers.
+- **Network**: current interface status and addresses, informational only.
+- **System Logs**: protected informational notice only; raw log content is not
+  exposed here.
+- **Software Components**: installed application/component metadata from desktop
+  entries and package ownership.
+
+Built-in launchers:
+
+- **System Information**: read-only summary of ZacOS version, distro, kernel,
+  CPU, memory, storage, network, audio, loaded drivers and uptime.
+- **Extensions Manager**: read-only list of the curated Extensions, with
+  icons, a description and status/startup/module details for the selection.
+  **Show All** switches to every loaded kernel module by technical name.
+  Nothing here loads or unloads modules.
+  Two more views sit beside Extensions in the same window:
+  **Login Items** lists the autostart entries (on and off) with their source and
+  "takes effect at your next login"; **Turn On/Off** writes an override into
+  `~/.config/autostart` only (a system entry is never edited), and is offered only
+  for entries that are on or disabled, not for missing programs or other
+  desktops. At session startup, `zacos9-session` adds `zacos9-autostart` to the
+  compositor's post-start command, after the Wayland display is available and
+  the desktop surfaces have launched. The helper resolves effective entries,
+  then launches them through GIO once per session and reports launch errors to
+  the session log. A minimal user override containing only `Hidden=true` is removed
+  when re-enabled, restoring the lower-priority entry. **Background Services**
+  lists `systemctl --user` services; only
+  user-owned/user-manager units that are `enabled` or `disabled` can be changed
+  (Start/Stop now, or start at login). Essential session services (D-Bus,
+  audio, `zacos9*`, portals, GNOME/Plasma services, …), static, generated and
+  template units are read-only. Turning something off or stopping a service asks
+  first. Before each change, the current unit list and full safety policy are
+  checked again. Only the user manager is contacted: no root, no polkit, no
+  system services. Queries and actions run off the UI thread; listing errors
+  are shown separately from an empty list. Lists refresh when the autostart or
+  `~/.config/systemd/user` folders change (debounced), and service state is
+  polled while the manager is open so external changes appear.
+
+## Virtual versus physical
+
+Items in the Macintosh view are either **virtual** (the System Folder, Control
+Panels, Applications and the generated resource folders: Get Info says "virtual;
+no physical equivalent") or **backed** by a real folder (Source shows the path).
+The virtual Zacintosh HD itself is the exception: its Get Info shows total
+filesystem capacity and space available to the user on the filesystem holding
+Home, without exposing Source or Access rows.
+The virtual System Folder is not the writable `Zacintosh HD` workspace that save
+dialogs use; Get Info says so and suggests Home or Documents. Show Original on an
+alias resolves it like Open does (reconnecting or offering Fix Alias…). Mounted
+volumes are real drives; no filesystem paths change. Sniffer re-lists lazily and
+watches (debounced) the application folders, mounted volumes, autostart folders
+and the user's unit folder. Resource watchers also observe existing desktop-entry
+files for in-place edits and atomic replacements, and watch the nearest existing
+ancestor when a source folder has not yet been created. Directory and file
+watches are bounded and rearmed after changes; alias targets are not watched and
+are re-checked asynchronously when the alias is opened. The session startup
+helper is wired into the compositor's startup hook; automated tests exercise
+discovery, launch, and duplicate suppression, but a live login was not exercised.
+
+## What the Finder will and won't do
+
+| | Curated folder | Application folder and its launcher | `backed` folder |
+|---|---|---|---|
+| Open | yes | launches the application | opens the real directory |
+| Get Info | no window yet | its desktop entry | the real directory |
+| Rename | yes, kept in the registry | yes, kept in the registry | ordinary rename |
+| Label | yes, kept in the registry | yes, kept in the registry | extended attribute |
+| Move, copy, duplicate, alias | no | no | ordinary |
+| Throw away | no | queues a supported application for uninstall (next section) | ordinary |
+| Take a drop | no | no | yes |
+| New folder inside | no | no | yes |
+
+Package-owned launchers are never moved or deleted directly. Debian uninstall
+uses the existing privileged software helper; other browsing and metadata
+actions write only into the user's own directories.
+
+A Desktop Action can't be renamed on its own, because it isn't a thing of
+its own: it belongs to the application's desktop entry.
+
+Get Info reads a file, so it shows the one the item stands for: an
+application's desktop entry, or a `backed` folder's real directory. The
+curated folders stand for nothing on disk; the startup disk Get Info is a
+capacity/available-space summary of its backing filesystem.
+
+## Uninstalling applications through Trash
+
+**Move To Trash**, or dragging an application from Applications onto
+Trash or into its window, queues it for uninstall. It remains installed but
+disappears from Applications, with its name and icon displayed in Trash.
+Queue records persist in the user's Trash across logins. No package-owned
+launcher is moved, and application aliases remain ordinary links: trashing an
+alias does not queue or uninstall its original.
+
+**Put Away**, or dragging a queued app back to Applications, cancels removal
+and restores its launcher. **Empty Trash** asks for confirmation listing queued
+app names and install sources by default; Finder Preferences > General can
+turn off the warning. Locked items remain unless Option is held while choosing
+Empty Trash. It then shows progress while uninstalling applications.
+Debian uses the existing software helper's `remove` operation, not `purge`;
+user Flatpak uses `flatpak --user uninstall` without `--delete-data`. Personal
+data is retained. A Debian package can own several applications or have
+dependents, so removal may remove those as well. System-wide Flatpak apps and
+unsupported/unowned apps are not queued; Finder reports how to remove them
+instead.
+System utilities and automatically installed dependencies cannot be queued
+for uninstall through Finder. Applications > Utilities accepts
+application-installation drops like Applications itself.
+
+Failed uninstalls leave their records in Trash for retry or Put Away, and stop
+emptying before ordinary files are deleted. Completed removals are not undone
+if a later app fails. A changed install source or invalid queue record blocks
+uninstall with an explicit error. Queued entries cannot be renamed or copied
+as ordinary files. New app queue entries created during emptying require a
+new confirmation.
+
+**Special > Show All Applications** still restores legacy hidden overrides
+from earlier versions, but does not cancel the uninstall queue. Renames and
+labels remain intact when an app is put away or later reinstalled.
+
+## Looking at Debian
+
+`"showUnixVolume": true` puts a second disk, "Unix", on the desktop,
+which opens `/` as ordinary files. It is off by default, so the Finder's
+ordinary views never show the Unix hierarchy. The Finder also takes a
+`show-unix-volume` command, which turns it on and off.
+
+## Errors
+
+- An application that is removed between being listed and being opened
+  gives an alert saying so; its folder disappears at the next refresh.
+- A registry that won't parse is replaced by the default mapping rather
+  than leaving the Finder with no startup disk.
+- A `backed` directory that can't be created simply opens empty; nothing
+  is created outside the user's own directories.
+- Renaming to a name a sibling already has is refused, as in the Finder.
+
+## Tests
+
+`finder-fileassoc` covers hidden extensions (compound, unknown and dot-file
+names, folders), renames keeping or replacing the extension, MIME types of
+files and aliases, the default application and its candidates, the composed
+document icon and its fallback, setting a default (written to
+`mimeapps.list`, refused for an application that isn't installed), and
+noticing another program's atomic replacement, edit in place and a new
+desktop-specific list. It runs in a private XDG tree.
+
+`finder-thumbnails` covers picture previews: cache format and reuse,
+regeneration after an edit, orientation, framing, unreadable files, aliases,
+window repaints and the Finder icon painter.
+
+`tests/finder/test_vfs.cpp` (`meson test finder-vfs`) builds a
+private XDG environment in a temporary directory and checks discovery,
+precedence, hidden entries, duplicate names, Desktop Actions, launching,
+installing and uninstalling, renames and labels surviving a reload,
+migration, what the Finder refuses, hiding and un-hiding an application,
+package/version lookup against the real dpkg database, Flatpak origin
+detection, icon resolution (and its fallback when nothing resolves), and
+that every writable folder is inside the user's own directories. It runs
+as a `QGuiApplication` on the offscreen QPA platform so icon rendering
+is exercised for real, not skipped.
+
+`tests/lib/test_draw.c` (`meson test draw`) checks the alpha-blend math
+`pl_image_blend` uses to draw a resolved icon's real alpha, separately
+from the icon set's plain on/off transparency.
+
+`finder-desktop` tests menu and drag-to-Trash queueing, persisted records,
+Put Away, cancellation, failed-removal retries, both uninstall command routes,
+and personal-data preservation with isolated commands (no real uninstall).
+The file-chooser location test checks Favorites, the recent-folder order and
+limit, unavailable destinations, and each disk's navigation boundaries.
+`tests/ui/finder-startup-disk.sh` and `tests/ui/finder-hide-application.sh`
+are the matching look at the screen; the latter queues and restores an app
+without emptying Trash.

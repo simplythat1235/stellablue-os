@@ -1,0 +1,117 @@
+#ifndef ZACOS9_SETTINGS_H
+#define ZACOS9_SETTINGS_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stdbool.h>
+#include <stddef.h>
+
+#include "draw.h"
+#include "icons.h"
+
+/*
+ * Appearance settings shared by the shell: ~/.config/zacos9/desktop.conf
+ * (QSettings INI, "[General]" section), e.g. "pattern=ocean-ripple",
+ * "alert-sound=glass". The Appearance and Sound control panels write it.
+ */
+
+/* Copies the value of `key` into out; false if it isn't set. The file is
+ * re-read whenever it changes, so callers can ask on every paint. */
+bool pl_setting(const char *key, char *out, size_t size);
+/* Set `key` (writes the file; NULL value removes the key). */
+bool pl_setting_set(const char *key, const char *value);
+
+/* Accent colours (scroll thumbs, menu highlights, progress bars). Index 0
+ * is Lavender, the default. */
+int pl_accent_count(void);
+const char *pl_accent_id(int index);
+const char *pl_accent_name(int index);
+struct pl_accent pl_accent_at(int index);
+int pl_accent_find(const char *id); /* 0 if unknown */
+/* The chosen accent ("accent=" in desktop.conf). */
+struct pl_accent pl_accent_current(void);
+/* The text highlight colour (list selections): "highlight=RRGGBB", or
+ * the accent's light shade. */
+uint32_t pl_highlight_current(void);
+
+/* Where shared data (sounds/) lives: $ZACOS9_DATA, the installed data
+ * directory, or the source tree's assets/ when running from a build. */
+const char *pl_data_dir(void);
+
+/* Play a sound from sounds/NAME.wav without waiting for it. NULL plays
+ * the chosen alert sound ("alert-sound", default "platinum"). */
+void pl_sound_play(const char *name);
+
+/* The alert sound, for alerts and refused actions. */
+void pl_beep(void);
+/* Interface events use the selected sound theme, independently of alerts.
+ * "startup" and "shutdown" are played at desktop login and logout when
+ * the selected theme supplies them.
+ * window-drag-end bypasses the event throttle and retries a busy interface
+ * lock for up to 300 ms in the detached player, allowing stop then end without
+ * waiting in the GUI. Other interface events skip a busy lock immediately. */
+void pl_sound_event(const char *event);
+/* Start repeating an interface event (normally "window-drag"), replacing the
+ * caller's previous loop. Unset/none/muted/missing events start no playback.
+ * An active loop rechecks theme, sample and volume every ~40 ms, pausing while
+ * disabled. Each sample shares the interface-event lock; contention retries.
+ * Stop is idempotent and never waits for playback. Call on release/cancel/unmap;
+ * caller exit/exec also stops the loop. These APIs are for the GUI thread. */
+void pl_sound_loop_start(const char *event);
+void pl_sound_loop_stop(void);
+void pl_sound_preview(const char *path, int level);
+
+/* Double-click time in ms (the Mouse panel's "double-click"; Mac OS's
+ * default 533). */
+int pl_double_click_ms(void);
+
+/* Finder labels as the user named and coloured them (the Sniffer's
+ * Preferences > Labels: desktop.conf "label-names", seven names separated
+ * by '|', and "label-colors", seven RRGGBB), else pl_labels. Index 0 is
+ * None, always. */
+const char *pl_label_name(int index);
+uint32_t pl_label_color(int index);
+/* The labels' choices: Mac OS's standard 16 colours, ARGB. */
+#define PL_PALETTE16_COUNT 16
+extern const uint32_t pl_palette16[PL_PALETTE16_COUNT];
+
+/* General Controls. How many times a chosen menu item blinks before it
+ * acts, 0..3 ("menu-blink"; 1 by default). */
+int pl_menu_blinks(void);
+/* The insertion point's blink cycle in ms, on and off ("caret-blink":
+ * slow 1600, medium 1066, fast 534; Mac OS's 32-tick default is medium). */
+int pl_caret_blink_ms(void);
+/* Appearance > Options' Smart Scrolling ("smart-scrolling", off by
+ * default): scroll arrows together at the end, a thumb sized to what
+ * shows. */
+bool pl_smart_scrolling(void);
+
+/* The Speech control panel's choices: the voice ("speech-voice", a name
+ * `spd-say -L` lists; empty for the default) and rate ("speech-rate",
+ * -100..100). pl_speech_args fills argv with spd-say and them, ready for
+ * the text: returns the count (at most 7), the strings in buf. */
+int pl_speech_rate(void);
+int pl_speech_args(const char **argv, char *buf, size_t size);
+/* Says `text` in the background (speech-dispatcher's spd-say); nothing if
+ * it isn't installed. */
+void pl_speak(const char *text);
+/* Talking Alerts ("talking-alerts", off by default): alerts speak. */
+bool pl_talking_alerts(void);
+
+/* Sniffer Preferences' Puppy Mode ("puppy-mode", off by default; Mac OS
+ * 9's Simple Finder): only the essential commands. */
+bool pl_puppy_mode(void);
+/* Puppy Mode set for this person by an administrator (the Users panel;
+ * /etc/zacos9/puppy/USER): always on, and the preference can't change it. */
+bool pl_puppy_locked(void);
+/* Whether Puppy Mode keeps a Sniffer command (as the menu bar sends it:
+ * "duplicate", "label 3"…); true for every command outside Puppy Mode. */
+bool pl_puppy_allows(const char *command);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

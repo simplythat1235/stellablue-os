@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Sniffer
+Comment=Opens folders in Sniffer
+Exec=zacos9-finder --open %U
+MimeType=inode/directory;
+NoDisplay=true
+OnlyShowIn=ZacOS9;

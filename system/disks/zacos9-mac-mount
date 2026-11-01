@@ -1,0 +1,297 @@
+#!/usr/bin/python3
+"""Privileged, read-only mounting of HFS, HFS+ and APFS block devices."""
+import contextlib
+import ctypes
+import fcntl
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import stat
+import subprocess
+import sys
+
+ROOT = Path("/run/media/zacos9-mac")
+DEVICE = re.compile(r"/dev/(?:sd[a-z]+[0-9]*|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|"
+                    r"mmcblk[0-9]+(?:p[0-9]+)?|loop[0-9]+(?:p[0-9]+)?|sr[0-9]+)\Z")
+FILESYSTEMS = {"hfs", "hfsplus", "apfs"}
+APFS_HELPER_NAMES = {"preboot", "recovery", "vm", "update", "xart", "iscpreboot",
+                     "hardware", "diagnostics"}
+
+
+def user_apfs_volumes(volumes):
+    selected = [volume for volume in volumes
+                if volume["name"].strip().casefold() not in APFS_HELPER_NAMES]
+    if not selected:
+        raise ValueError("The APFS container has no normal data/system volumes to mount")
+    return selected
+
+
+def mounted_paths():
+    paths = set()
+    for line in Path("/proc/self/mountinfo").read_text().splitlines():
+        fields = line.split()
+        if len(fields) < 10 or "-" not in fields:
+            raise ValueError("Cannot determine mounted filesystems")
+        paths.add(re.sub(r"\\([0-7]{3})", lambda match: chr(int(match.group(1), 8)), fields[4]))
+    return paths
+
+
+def container_mounts(target):
+    paths = []
+    for value in mounted_paths():
+        path = Path(value)
+        if path == target:
+            paths.append(value)
+        elif path.is_relative_to(target):
+            if path.parent != target or not re.fullmatch(r"[1-9][0-9]*", path.name):
+                raise ValueError("Unexpected nested mount in Mac container: " + value)
+            paths.append(value)
+    return sorted(paths)
+
+
+def recovery_record(record, target, device, active):
+    try:
+        record.write_text(json.dumps({"path": str(target), "device": device,
+                                     "paths": active, "recovery": True}))
+        record.chmod(0o644)
+    except OSError as error:
+        raise ValueError(f"Leftover Mac mounts at {target}; could not record them for eject: {error}") from error
+
+
+def apfs_volumes(source):
+    library = ctypes.CDLL("libfsapfs.so.1")
+    pointer = ctypes.c_void_p
+    pointer_ref = ctypes.POINTER(pointer)
+    signatures = {
+        "container_initialize": ([pointer_ref, pointer_ref], ctypes.c_int),
+        "container_open": ([pointer, ctypes.c_char_p, ctypes.c_int, pointer_ref], ctypes.c_int),
+        "container_get_number_of_volumes": (
+            [pointer, ctypes.POINTER(ctypes.c_int), pointer_ref], ctypes.c_int),
+        "container_get_volume_by_index": (
+            [pointer, ctypes.c_int, pointer_ref, pointer_ref], ctypes.c_int),
+        "volume_get_utf8_name_size": (
+            [pointer, ctypes.POINTER(ctypes.c_size_t), pointer_ref], ctypes.c_int),
+        "volume_get_utf8_name": (
+            [pointer, pointer, ctypes.c_size_t, pointer_ref], ctypes.c_int),
+        "volume_free": ([pointer_ref, pointer_ref], ctypes.c_int),
+        "container_close": ([pointer, pointer_ref], ctypes.c_int),
+        "container_free": ([pointer_ref, pointer_ref], ctypes.c_int),
+        "error_sprint": ([pointer, ctypes.c_char_p, ctypes.c_size_t], ctypes.c_int),
+        "error_free": ([pointer_ref], None),
+    }
+    for name, (arguments, result) in signatures.items():
+        function = getattr(library, "libfsapfs_" + name)
+        function.argtypes, function.restype = arguments, result
+    container, error = pointer(), pointer()
+    opened = False
+
+    def check(result, expected=1):
+        if result != expected:
+            message = ctypes.create_string_buffer(4096)
+            library.libfsapfs_error_sprint(error, message, len(message))
+            library.libfsapfs_error_free(ctypes.byref(error))
+            raise ValueError("APFS container: " + message.value.decode("utf-8", errors="replace"))
+
+    try:
+        check(library.libfsapfs_container_initialize(ctypes.byref(container), ctypes.byref(error)))
+        check(library.libfsapfs_container_open(container, os.fsencode(source), 1, ctypes.byref(error)))
+        opened = True
+        count = ctypes.c_int()
+        check(library.libfsapfs_container_get_number_of_volumes(
+            container, ctypes.byref(count), ctypes.byref(error)))
+        if not 1 <= count.value <= 100:
+            raise ValueError("APFS container has no volumes or exceeds the reader's 100-volume limit")
+        volumes = []
+        for index in range(count.value):
+            volume = pointer()
+            try:
+                check(library.libfsapfs_container_get_volume_by_index(
+                    container, index, ctypes.byref(volume), ctypes.byref(error)))
+                size = ctypes.c_size_t()
+                check(library.libfsapfs_volume_get_utf8_name_size(
+                    volume, ctypes.byref(size), ctypes.byref(error)))
+                if not 1 <= size.value <= 4096:
+                    raise ValueError(f"APFS volume {index + 1} has an invalid name size")
+                name = ctypes.create_string_buffer(size.value)
+                check(library.libfsapfs_volume_get_utf8_name(
+                    volume, name, size.value, ctypes.byref(error)))
+                decoded = name.value.decode("utf-8")
+                volumes.append({"index": index + 1,
+                                "name": decoded or f"APFS Volume {index + 1}"})
+            finally:
+                if volume:
+                    check(library.libfsapfs_volume_free(ctypes.byref(volume), ctypes.byref(error)))
+        return volumes
+    finally:
+        if container:
+            try:
+                if opened:
+                    check(library.libfsapfs_container_close(container, ctypes.byref(error)), 0)
+            finally:
+                check(library.libfsapfs_container_free(ctypes.byref(container), ctypes.byref(error)))
+
+
+def mount_apfs(source, target, fd):
+    volumes = user_apfs_volumes(apfs_volumes(source))
+    directories = []
+    try:
+        for entry in volumes:
+            index = entry["index"]
+            volume = target / str(index)
+            root_directory(volume)
+            directories.append(volume)
+            run(["/usr/bin/fsapfsmount", "-f", str(index), "-X",
+                 "ro,nodev,nosuid,noexec,allow_other", source, str(volume)], (fd,))
+            if str(volume) not in mounted_paths():
+                raise ValueError(f"APFS volume {index}: the reader exited without mounting")
+        return [{"name": entry["name"], "path": str(target / str(entry["index"]))}
+                for entry in volumes]
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        failures = []
+        # A reader can create its FUSE mount and then fail. Inspect every
+        # attempted path, not just the commands that returned successfully.
+        for volume in reversed(directories):
+            try:
+                if str(volume) in mounted_paths():
+                    run(["/usr/bin/umount", "--", str(volume)])
+            except (OSError, ValueError, subprocess.TimeoutExpired) as failure:
+                failures.append(str(failure))
+        if failures:
+            raise ValueError(f"{error}; APFS rollback failed: {'; '.join(failures)}") from error
+        for volume in reversed(directories):
+            try:
+                volume.rmdir()
+            except OSError as failure:
+                raise ValueError(f"{error}; APFS directory cleanup failed: {failure}") from error
+        raise
+
+
+def run(args, pass_fds=()):
+    result = subprocess.run(args, capture_output=True, text=True, timeout=120,
+                            pass_fds=pass_fds, check=False,
+                            env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"})
+    if result.returncode:
+        raise ValueError(f"{Path(args[0]).name}: {result.stderr.strip() or result.stdout.strip()}")
+    return result.stdout.strip()
+
+
+def root_directory(path):
+    try:
+        path.mkdir(mode=0o755)
+    except FileExistsError:
+        pass
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+        raise ValueError("Unsafe mount directory: " + str(path))
+
+
+@contextlib.contextmanager
+def mount_root(uid):
+    for path in (Path("/run"), Path("/run/media"), ROOT, ROOT / str(uid)):
+        root_directory(path)
+    run(["/usr/bin/setfacl", "--set",
+         f"u::rwx,u:{uid}:r-x,g::---,m::r-x,o::---", str(ROOT / str(uid))])
+    fd = os.open(ROOT / ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_mode & 0o077:
+            raise ValueError("Unsafe mount lock")
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield ROOT / str(uid)
+    finally:
+        os.close(fd)
+
+
+def mount_device(operation, device, uid):
+    if not DEVICE.fullmatch(device):
+        raise ValueError("Specify a canonical Mac block device, not an arbitrary path")
+    fd = os.open(device, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISBLK(info.st_mode):
+            raise ValueError("Not a block device")
+        name = f"{os.major(info.st_rdev)}-{os.minor(info.st_rdev)}"
+        with mount_root(uid) as directory:
+            target = directory / name
+            record = directory / (name + ".json")
+            existing = json.loads(record.read_text()) if record.exists() else None
+            paths = existing.get("paths", [str(target)]) if existing else [str(target)]
+            if any(Path(path) != target and Path(path).parent != target for path in paths):
+                raise ValueError("Invalid Mac mount record")
+            active = container_mounts(target)
+            if operation == "unmount":
+                if not active:
+                    raise ValueError("This Mac volume is not mounted")
+                for path in reversed(active):
+                    run(["/usr/bin/umount", "--", path])
+                if container_mounts(target):
+                    raise ValueError("The Mac container is still mounted after eject")
+                for child in target.iterdir():
+                    if child.is_symlink() or not re.fullmatch(r"[1-9][0-9]*", child.name):
+                        raise ValueError("Unexpected entry in Mac container: " + str(child))
+                    root_directory(child)
+                    child.rmdir()
+                target.rmdir()
+                record.unlink(missing_ok=True)
+                return {"path": str(target), "device": device}
+            if existing and not existing.get("recovery") and paths and set(paths) == set(active):
+                return existing
+            if active:
+                recovery_record(record, target, device, active)
+                raise ValueError("This Mac container has leftover mounts; eject it before mounting again")
+            root_directory(target)
+            source = f"/proc/self/fd/{fd}"
+            filesystem = run(["/usr/sbin/blkid", "-p", "-s", "TYPE", "-o", "value",
+                              source], (fd,))
+            if filesystem not in FILESYSTEMS:
+                raise ValueError("Not an HFS, HFS+ or APFS volume")
+            if filesystem == "apfs":
+                try:
+                    volumes = mount_apfs(source, target, fd)
+                    paths = [volume["path"] for volume in volumes]
+                except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+                    active = container_mounts(target)
+                    if active:
+                        try:
+                            recovery_record(record, target, device, active)
+                        except ValueError as failure:
+                            raise ValueError(f"{error}; {failure}") from error
+                    raise
+            else:
+                paths = [str(target)]
+                run(["/usr/bin/mount", "-t", filesystem, "-o", "ro,nodev,nosuid,noexec",
+                     source, str(target)], (fd,))
+            if not set(paths) <= mounted_paths():
+                raise ValueError("The mount tool exited without mounting the volume")
+            result = {"device": device, "path": str(target), "paths": paths}
+            if filesystem == "apfs":
+                result["volumes"] = volumes
+            try:
+                record.write_text(json.dumps(result))
+                record.chmod(0o644)
+            except OSError:
+                for path in reversed(paths):
+                    run(["/usr/bin/umount", "--", path])
+                raise
+            return result
+    finally:
+        os.close(fd)
+
+
+def main():
+    if os.geteuid() != 0 or not os.environ.get("PKEXEC_UID", "").isdigit():
+        raise ValueError("Run this helper through pkexec")
+    uid = int(os.environ["PKEXEC_UID"])
+    pwd.getpwuid(uid)
+    if uid == 0 or len(sys.argv) != 3 or sys.argv[1] not in ("mount", "unmount"):
+        raise ValueError("Usage: pkexec zacos9-mac-mount mount|unmount DEVICE")
+    print(json.dumps(mount_device(sys.argv[1], sys.argv[2], uid)))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, OSError, KeyError, subprocess.TimeoutExpired) as error:
+        sys.exit("Mac disk: " + str(error))

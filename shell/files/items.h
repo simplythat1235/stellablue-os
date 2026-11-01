@@ -1,0 +1,224 @@
+#pragma once
+
+#include <QDateTime>
+#include <QImage>
+#include <QPoint>
+#include <QRect>
+#include <QString>
+#include <memory>
+#include <vector>
+
+#include "pixels.h"
+#include "settings.h"
+
+/* Something the Finder shows as an icon: a file, folder, disk or the Trash. */
+struct Item {
+	QString name;
+	QString path;
+	/* The name as shown, when it isn't `name`: a file's without its
+	 * extension (fileassoc.h's hiddenExtension). `name` stays the real
+	 * one, the key for positions, selection and renames. */
+	QString shownName;
+	const QString &visibleName() const { return shownName.isEmpty() ? name : shownName; }
+	/* The file's MIME type, looked up when first painted. */
+	QString mimeType;
+	bool mimeResolved = false;
+	pl_icon_kind kind = PL_ICON_DOCUMENT;
+	QPoint pos; /* icon top-left in its view's coordinates */
+	bool selected = false;
+	bool dropTarget = false; /* a drag is hovering over this folder */
+	/* Key for remembered positions; the name unless set (disk, Trash). */
+	QString stateKey;
+	const QString &key() const { return stateKey.isEmpty() ? name : stateKey; }
+	/* The name as drawn: `label` whole, wrapped onto lines to fit under a
+	 * large icon; `sideLabel` the same beside a small icon; `fullLabel` on
+	 * one line (list view). Each remembers the width it was wrapped to.
+	 * Reset all on a rename. */
+	struct WrappedLabel {
+		std::unique_ptr<Text> text;
+		int width = 0, lines = 1;
+	};
+	WrappedLabel label, sideLabel;
+	std::unique_ptr<Text> fullLabel;
+	void resetLabels() {
+		label = {};
+		sideLabel = {};
+		fullLabel.reset();
+	}
+
+	/* Finder label, 0 (None) .. PL_LABEL_COUNT-1, kept in LABEL_ATTR. */
+	int labelIndex = 0;
+	uint32_t labelColor() const { return pl_label_color(labelIndex); }
+
+	/* A folder shared from Get Info: drawn on a network line. */
+	bool shared = false;
+
+	/* A locally-mounted block-device volume (USB, extra HDD, optical
+	 * disc, SD card): Put Away ejects it via GIO when ejectable. */
+	bool isLocalVolume = false;
+	bool ejectable = false;
+	bool isUsbVolume = false;
+
+	/* A mounted network volume (AFP or SMB) on the desktop: real files,
+	 * at a real path, but Put Away ejects it instead of trying to move
+	 * it anywhere — there is nothing on this computer to put away. Like
+	 * the startup disk, it can't be dragged at all yet (desktop.cpp
+	 * excludes every "fixed" item from dragging; the Mac let you drag a
+	 * disk to the Trash to eject it, a gap that predates this and isn't
+	 * closed here either — see its TODO in Desktop::mouseMoveEvent).
+	 * See shell/files/netvolumes.h. */
+	bool isNetworkVolume = false;
+	pl_icon_kind iconKind() const {
+		/* Drawn so; the kind stays (a network volume opens as a disk does). */
+		return shared && kind == PL_ICON_FOLDER ? PL_ICON_SHARED_FOLDER
+			: isNetworkVolume && kind == PL_ICON_DISK ? PL_ICON_NETWORK_DISK : kind;
+	}
+
+	/* A virtual item: `path` names a node in the Macintosh view of this
+	 * computer ("vfs:/applications/..."), not a file. See vfs.h. */
+	bool isVirtual = false;
+	/* An application's own icon, resolved from the freedesktop icon
+	 * theme (straight-alpha ARGB, 32x32 and 16x16): drawn instead of the
+	 * compiled icon for `kind` when not empty. See appdb.h. */
+	std::vector<uint32_t> customIcon32, customIcon16;
+	/* A picture file's preview has been put in customIcon (or it has
+	 * none): stop asking. See thumbnails.h. */
+	bool thumbnailResolved = false;
+
+	/* An alias (a symbolic link): its name is shown in italics. */
+	bool isAlias = false;
+	pl_font nameFont() const { return isAlias ? PL_FONT_VIEWS_ITALIC : PL_FONT_VIEWS; }
+	QString fontFile;
+	int fontFaceIndex = 0;
+	Text renderName(int maxWidth) const;
+	Text renderString(const QString &s, int maxWidth) const;
+
+	/* For list view. */
+	bool isDir = false;
+	qint64 size = 0;
+	QDateTime modified;
+	QString kindText; /* filled in lazily: "folder", "Plain text document", ... */
+	const QString &kindName();
+	/* View Options' other columns, looked up when first needed
+	 * (viewoptions.cpp). */
+	QDateTime created;
+	QString comment, version;
+	bool createdResolved = false, commentResolved = false, versionResolved = false;
+	/* A folder's contents added up (Calculate folder sizes); -1 until then. */
+	qint64 folderSize = -1;
+
+	/* Label below the icon, views font: the whole name, wrapped onto as many
+	 * lines as it needs to fit the grid's width (Preferences' grid spacing),
+	 * at spaces and hyphens where it can. The views' grids grow taller to
+	 * fit their tallest label, so names never overlap. */
+	const Text &labelText();
+	/* Beside a small icon, wrapped to `ink`. */
+	const Text &sideLabelText(int ink);
+	const Text &fullLabelText();
+	const Text &shownLabel() { return labelText(); }
+	/* A label's box height and its baseline within the box: a plain one-line
+	 * name keeps the views font's fixed box; a wrapped one, or a font's name
+	 * in its own face, its text's. */
+	int labelBoxHeight(const WrappedLabel &l, int plainH) const;
+	int labelBaseline(const WrappedLabel &l, int plainBaseline) const;
+};
+
+/* Directory listing as Finder items, folders and files mixed, by name
+ * (the Finder's default "by Name" arrangement). Hidden files are skipped. */
+std::vector<std::unique_ptr<Item>> listFolder(const QString &path);
+class QFileInfo;
+std::unique_ptr<Item> makeItem(const QFileInfo &info);
+
+pl_icon_kind iconKindFor(const QString &path);
+/* A console game's file (a cartridge or disc), recognized by extension and,
+ * where an extension is shared with other files, by the file's own bytes;
+ * PL_ICON_DOCUMENT when it is not one. Game Player opens these. */
+pl_icon_kind romIconKind(const QString &path);
+/* Is this folder shared (Get Info > Sharing)? */
+bool isSharedFolder(const QString &path);
+/* A Macintosh disk or CD image (HFS, HFS+ or partitioned): opening one
+ * starts it in Classic. */
+/* A CD or DVD image (.iso, ISO 9660): Disk Copy mounts it read-only. */
+bool isDiscImage(const QString &path);
+bool isMacDiskImage(const QString &path);
+/* A Windows .exe or .msi: opening one runs it via Wine. */
+bool isWindowsExecutable(const QString &path);
+/* A classic Mac OS application: a file copied in through the emulator's
+ * "Unix" volume, whose Finder info (in .finf/<name>, SheepShaver's ExtFS
+ * format) has type 'APPL'. Opening one starts Classic. */
+bool isClassicApplication(const QString &path);
+
+/* The extended attribute holding an item's label, as a decimal index. */
+inline constexpr const char *LABEL_ATTR = "user.zacos9.label";
+int readLabel(const QString &path);
+/* Label 0 removes the attribute. Returns false if it can't be stored. */
+bool writeLabel(const QString &path, int label);
+/* A Get Info icon pasted by the user (32x32 PNG in a user xattr). */
+QImage customIconImage(const QString &path);
+bool writeCustomIconImage(const QString &path, const QImage &image);
+bool clearCustomIconImage(const QString &path);
+
+/* The node's name for a virtual path, "Unix" for /, "Trash" for the
+ * trash, else the last path component. */
+QString displayName(const QString &path);
+QString trashFilesPath();
+/* Favorites (File > Add To Favorites): aliases, listed in the Zac menu and
+ * the Open and Save dialogs. */
+QString favoritesPath();
+/* The Toy Box's buttons: aliases, and bulleted folders for its pages. */
+QString toyBoxPath();
+
+/* Paint an icon with its label; `onDesktop` labels get a white box when
+ * unselected (desktop pattern behind them). TODO: measure label metrics. */
+void paintIconItem(pl_canvas *c, Item &item, int x, int y, bool onDesktop,
+		bool showLabel = true);
+/* The icon alone, at `size` (32 or 16): an application's own icon if one
+ * was resolved, a picture file's preview once it is ready, a document
+ * bearing the icon of the application that opens it, else the compiled
+ * icon for its kind. Used by the list
+ * and Find windows, which draw the label text themselves. */
+void paintIcon(pl_canvas *c, Item &item, int x, int y, int size, bool highlight);
+/* A document of `mimeType`: a blank page bearing the icon of the
+ * application that opens it, at `size` (32 or 16), straight-alpha ARGB.
+ * Null when no application with an icon opens it (the plain document icon
+ * is drawn). Cached until the associations change. */
+const std::vector<uint32_t> *documentIcon(const QString &mimeType, int size);
+/* Is `p` on the label of the icon at (x, y)? */
+bool iconLabelContains(Item &item, int x, int y, QPoint p, int limitW = 0);
+/* The label alone, again: called for the selected icons after everything
+ * else, so a whole name lies over its neighbours rather than under them.
+ * Kept inside the canvas. */
+void paintIconLabel(pl_canvas *c, Item &item, int x, int y, bool onDesktop);
+/* Icon view placement: items whose names are in `placed` go there; the
+ * rest take the first free grid slot (`slot(i)` gives slot i's icon
+ * position) so they never land on a placed icon. Cells are cellW x cellH. */
+#include <QHash>
+#include <QSet>
+#include <functional>
+void placeIcons(const std::vector<Item *> &items, const QHash<QString, QPoint> &placed,
+		const std::function<QPoint(int)> &slot, int cellW, int cellH, int iconInset = -1);
+/* Always snap to grid (View Options): the free slot nearest `p` (slots
+ * 0..slotCount-1, as placeIcons'), not one in `taken`. */
+int nearestFreeSlot(QPoint p, const std::function<QPoint(int)> &slot, int slotCount,
+		const QSet<int> &taken);
+
+/* The View menu's Clean Up and Arrange (Mac OS 9). */
+enum class Arrange { CleanUp, Name, Modified, Created, Size, Kind, Label };
+/* Into Arrange's order: by name; newest first by date; largest first by
+ * size; by kind, then name; labelled before unlabelled, in label order. */
+void sortIcons(std::vector<Item *> &items, Arrange by);
+/* Sets each item's pos to a grid slot (slot(i), i < slotCount). Clean Up
+ * moves each icon to the nearest free slot, the topmost-leftmost first,
+ * keeping the arrangement roughly as it was; the others sort the icons
+ * and lay them out afresh from the first slot. */
+void arrangeIcons(std::vector<Item *> items, Arrange how,
+		const std::function<QPoint(int)> &slot, int slotCount);
+
+/* Can items be dropped into this one (folder, disk, Trash)? */
+bool acceptsDrops(const Item &item);
+/* Hit area of an icon item at (x, y): the icon square or its label. */
+bool iconItemContains(Item &item, int x, int y, QPoint p, int limitW = 0);
+/* The icon square and label together, for a selection rectangle. */
+QRect iconItemRect(Item &item, int x, int y, int limitW = 0);
+/* The Finder's dotted gray selection rectangle. */
+void paintMarquee(pl_canvas *c, const QRect &r);

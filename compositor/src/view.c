@@ -1,0 +1,983 @@
+#include <stdlib.h>
+#include <string.h>
+
+#include "frame.h"
+#include "server.h"
+
+/* Default minimum content size when the client doesn't state one. */
+#define VIEW_MIN_W 100
+#define VIEW_MIN_H 50
+
+/* Desktop left showing around a new window: the right strip clears the
+ * desktop's icon column (an 80 px cell 24 px in from the edge). */
+#define VIEW_DEFAULT_MARGIN_X 96
+#define VIEW_DEFAULT_MARGIN_Y 32
+
+void view_setup(struct plat_view *view, struct plat_server *server,
+		enum plat_view_type type, const struct plat_view_impl *impl) {
+	view->server = server;
+	view->type = type;
+	view->impl = impl;
+	view->scene_tree = wlr_scene_tree_create(server->view_layer);
+	view->scene_tree->node.data = view;
+	view->frame = frame_create(view, view->scene_tree);
+	wl_list_init(&view->link);
+}
+
+void view_attach_surface_tree(struct plat_view *view, struct wlr_scene_tree *tree) {
+	view->surface_tree = tree;
+	if (tree) {
+		wlr_scene_node_set_enabled(&tree->node, !view->collapsed);
+		frame_raise_overlay(view->frame);
+	}
+}
+
+struct wlr_box view_frame_box(struct plat_view *view) {
+	if (view->fullscreen && view->fullscreen_output) {
+		struct wlr_box box;
+		wlr_output_layout_get_box(view->server->output_layout, view->fullscreen_output, &box);
+		return box;
+	}
+	const struct decor_state *st = &view->frame->st;
+	return (struct wlr_box){
+		.x = view->scene_tree->node.x,
+		.y = view->scene_tree->node.y,
+		.width = st->width,
+		.height = decor_frame_height(st),
+	};
+}
+
+void view_content_pos(struct plat_view *view, int *x, int *y) {
+	struct decor_margins m = view->fullscreen ? (struct decor_margins){0}
+		: decor_margins(view->frame->st.style);
+	*x = view->scene_tree->node.x + m.left;
+	*y = view->scene_tree->node.y + m.top;
+}
+
+static bool view_resizable(struct plat_view *view) {
+	int min_w, min_h, max_w, max_h;
+	view->impl->get_size_limits(view, &min_w, &min_h, &max_w, &max_h);
+	bool fixed = max_w > 0 && max_h > 0 && min_w == max_w && min_h == max_h;
+	return !fixed;
+}
+
+static struct wlr_scene_tree *view_window_layer(struct plat_view *view) {
+	if (view->system_prompt) {
+		return view->server->dialog_layer;
+	}
+	switch (view->frame->st.style) {
+	case DECOR_STYLE_MOVABLE_MODAL:
+		return view->server->dialog_layer;
+	case DECOR_STYLE_POPUP:
+		return view->server->popup_layer;
+	default:
+		return view->server->view_layer;
+	}
+}
+
+/* ---- pop-up windows ------------------------------------------------------ */
+
+/* The first place along the bottom of `area` where a tab `tab_w` wide
+ * covers no other pop-up's tab. */
+static int popup_free_tab_x(struct plat_view *view, struct wlr_box area, int tab_w) {
+	int x = area.x + 8;
+	for (int pass = 0; pass < 64; pass++) {
+		bool moved = false;
+		struct plat_view *v;
+		wl_list_for_each(v, &view->server->views, link) {
+			if (v == view || !v->popup || !v->mapped) {
+				continue;
+			}
+			const int end = v->popup_tab_x + decor_tab_width(&v->frame->st);
+			if (x < end && v->popup_tab_x < x + tab_w) {
+				x = end + 4;
+				moved = true;
+			}
+		}
+		if (!moved) {
+			break;
+		}
+	}
+	return x;
+}
+
+void view_popup_layout(struct plat_view *view) {
+	if (!view->popup) {
+		return;
+	}
+	struct wlr_box area = output_usable_area(view->server, view->popup_out_x, view->popup_out_y);
+	if (wlr_box_empty(&area)) {
+		return;
+	}
+	struct plat_frame *frame = view->frame;
+	frame_commit(frame); /* the title, and so the tab's width, for this width */
+	const struct decor_state *st = &frame->st;
+	const int W = st->width, tab_w = decor_tab_width(st);
+	if (view->popup_tab_x > area.x + area.width - tab_w) {
+		view->popup_tab_x = area.x + area.width - tab_w;
+	}
+	if (view->popup_tab_x < area.x) {
+		view->popup_tab_x = area.x;
+	}
+	/* The body is centred under its tab, as far as the screen allows. */
+	int x = view->popup_tab_x + tab_w / 2 - W / 2;
+	if (x > area.x + area.width - W) {
+		x = area.x + area.width - W;
+	}
+	if (x < area.x) {
+		x = area.x;
+	}
+	int y = area.y + area.height - decor_frame_height(st);
+	if (y < area.y) {
+		y = area.y;
+	}
+	frame_set_tab_x(frame, view->popup_tab_x - x);
+	frame_commit(frame);
+	view_move_to(view, x, y);
+}
+
+void view_popups_close(struct plat_server *server, struct plat_view *except) {
+	struct plat_view *v;
+	wl_list_for_each(v, &server->views, link) {
+		if (v != except && v->popup && v->mapped && !v->collapsed) {
+			view_set_collapsed(v, true);
+		}
+	}
+}
+
+/* The window becomes, or stops being, a pop-up (its program asked, or
+ * its tab was dragged up): its tab where the program remembered or in
+ * the first free place; an ordinary window again is open. */
+static void popup_changed(struct plat_view *view, bool popup) {
+	struct plat_server *server = view->server;
+	view->popup = popup;
+	if (popup) {
+		view->popup_out_x = (int)server->cursor->x;
+		view->popup_out_y = (int)server->cursor->y;
+		struct wlr_box area = output_usable_area(server, view->popup_out_x, view->popup_out_y);
+		int tab_x;
+		if (platinum_shell_popup_tab_for(view->impl->get_surface(view), &tab_x)) {
+			view->popup_tab_x = tab_x;
+		} else {
+			view->popup_tab_x = popup_free_tab_x(view, area, decor_tab_width(&view->frame->st));
+		}
+	}
+	/* The window in front stays open as a pop-up (View > as Pop-up
+	 * Window); a new one is closed until it comes forward. */
+	view->collapsed = popup && server->focused_view != view;
+	if (view->surface_tree) {
+		wlr_scene_node_set_enabled(&view->surface_tree->node, !view->collapsed);
+	}
+	frame_set_collapsed(view->frame, view->collapsed);
+}
+
+void view_popup_detach(struct plat_view *view) {
+	struct plat_server *server = view->server;
+	platinum_shell_popup_detached(view);
+	popup_changed(view, false);
+	view_update_frame(view);
+	/* Its title bar under the pointer, as if picked up by it. */
+	struct wlr_box box = view_frame_box(view);
+	view_move_to(view, (int)server->cursor->x - box.width / 2, (int)server->cursor->y - 10);
+	view_focus(view);
+}
+
+void view_min_frame_size(struct plat_view *view, int *w, int *h) {
+	int min_w, min_h, max_w, max_h;
+	view->impl->get_size_limits(view, &min_w, &min_h, &max_w, &max_h);
+	*w = frame_outer_w(view->frame, min_w > VIEW_MIN_W ? min_w : VIEW_MIN_W);
+	*h = frame_outer_h(view->frame, min_h > VIEW_MIN_H ? min_h : VIEW_MIN_H);
+}
+
+static void snap_to_pixels(struct plat_view *view, int *x, int *y);
+
+/* Sync the frame to the client's current geometry. */
+void view_update_frame(struct plat_view *view) {
+	struct wlr_box geo;
+	view->impl->get_geometry(view, &geo);
+	/* xdg scene trees already have their origin at the window geometry. */
+	int offset_x = view->type == PLAT_VIEW_XDG ? 0 : geo.x;
+	int offset_y = view->type == PLAT_VIEW_XDG ? 0 : geo.y;
+	if (view->fullscreen) {
+		wlr_scene_node_set_enabled(&view->frame->tree->node, false);
+		wlr_scene_node_set_enabled(&view->frame->grow->node, false);
+		if (view->surface_tree) {
+			wlr_scene_node_set_position(&view->surface_tree->node, -offset_x, -offset_y);
+		}
+		return;
+	}
+	wlr_scene_node_set_enabled(&view->frame->tree->node, true);
+	/* Our own programs say how to frame a window; otherwise fixed-size
+	 * windows with a parent are dialogs (HIG: movable modal). */
+	int hint = platinum_shell_style_for(view->impl->get_surface(view));
+	bool dialog = hint >= 0 ? hint == DECOR_STYLE_MOVABLE_MODAL
+		: view->system_prompt || (!view_resizable(view) && view->impl->has_parent(view));
+	const bool popup = hint == DECOR_STYLE_POPUP;
+	frame_set_style(view->frame, popup ? DECOR_STYLE_POPUP
+		: dialog ? DECOR_STYLE_MOVABLE_MODAL : DECOR_STYLE_DOCUMENT);
+	if (popup != view->popup) {
+		popup_changed(view, popup);
+	}
+	frame_set_proxy(view->frame, platinum_shell_proxy_for(view->impl->get_surface(view)));
+	struct wlr_scene_tree *layer = view_window_layer(view);
+	if (view->scene_tree->node.parent != layer) {
+		wlr_scene_node_reparent(&view->scene_tree->node, layer);
+	}
+	struct decor_margins m = decor_margins(view->frame->st.style);
+	if (view->surface_tree) {
+		wlr_scene_node_set_position(&view->surface_tree->node,
+			m.left - offset_x, m.top - offset_y);
+	}
+	bool resizable = view_resizable(view);
+	frame_set_features(view->frame, resizable, resizable);
+	frame_set_size(view->frame, geo.width, geo.height);
+	/* Its contents' place in the frame known (or changed with its style):
+	 * onto the screen's pixel pattern, at a fractional scale. */
+	int x = view->scene_tree->node.x, y = view->scene_tree->node.y;
+	snap_to_pixels(view, &x, &y);
+	if (x != view->scene_tree->node.x || y != view->scene_tree->node.y) {
+		view_move_to(view, x, y);
+	}
+	frame_commit(view->frame);
+	view_popup_layout(view);
+}
+
+void view_set_title(struct plat_view *view, const char *title) {
+	frame_set_title(view->frame, title);
+	if (!view->fullscreen) {
+		frame_commit(view->frame);
+	}
+	if (view->toplevel_handle) {
+		wlr_foreign_toplevel_handle_v1_set_title(view->toplevel_handle, title ? title : "");
+	}
+}
+
+/* Programs that ask for a password on another program's behalf: the
+ * keyring's prompter (also behind pinentry-gnome3 and the ssh askpass) and
+ * the session's polkit agent. The program asking would otherwise come
+ * forward over the prompt while the password is being typed. */
+static bool is_system_prompt(const char *app_id) {
+	static const char *const prompts[] = {
+		"gcr-prompter", "org.gnome.keyring.SystemPrompter",
+		"org.gnome.keyring.PrivatePrompter", "gcr-ssh-askpass", "gcr4-ssh-askpass",
+		"lxqt-policykit-agent",
+	};
+	for (size_t i = 0; app_id && i < sizeof(prompts) / sizeof(prompts[0]); i++) {
+		if (strcmp(app_id, prompts[i]) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/* The front prompt on screen, which keeps the keyboard until answered. */
+static struct plat_view *system_prompt_shown(struct plat_server *server) {
+	struct plat_view *view;
+	wl_list_for_each(view, &server->views, link) {
+		if (view->system_prompt && view->mapped && !view->hidden) {
+			return view;
+		}
+	}
+	return NULL;
+}
+
+void view_set_app_id(struct plat_view *view, const char *app_id) {
+	free(view->app_id);
+	view->app_id = strdup(app_id ? app_id : "");
+	view->system_prompt = is_system_prompt(view->app_id);
+	if (view->toplevel_handle) {
+		wlr_foreign_toplevel_handle_v1_set_app_id(view->toplevel_handle, view->app_id);
+	}
+}
+
+void view_place_new(struct plat_view *view) {
+	/* Stagger new windows down and to the right, like the Finder does. */
+	static int stagger;
+	int offset = 20 * (stagger++ % 10);
+	struct plat_server *server = view->server;
+	struct wlr_box area = output_usable_area(server, server->cursor->x, server->cursor->y);
+	view_move_to(view, area.x + 40 + offset, area.y + 20 + offset);
+}
+
+struct wlr_box view_default_frame_in(struct wlr_box area) {
+	int mx = VIEW_DEFAULT_MARGIN_X, my = VIEW_DEFAULT_MARGIN_Y;
+	/* Small screens: keep the strips proportionate rather than squash the window. */
+	if (area.width < 4 * mx) {
+		mx = area.width / 8;
+	}
+	if (area.height < 4 * my) {
+		my = area.height / 8;
+	}
+	return (struct wlr_box){
+		.x = area.x + mx,
+		.y = area.y + my,
+		.width = area.width - 2 * mx - DECOR_SHADOW,
+		.height = area.height - 2 * my - DECOR_SHADOW,
+	};
+}
+
+/* ZacOS 9's own programs that size their windows themselves: the Finder,
+ * Picture Viewer (fitted to its picture), Dog Ears' notes, Scribble's
+ * documents, the Stash and Key Tags, as small as the Mac's. */
+static bool sizes_own_windows(const char *app_id) {
+	static const char *const own[] = { "zacos9-finder", "zacos9-picture", "zacos9-dogears",
+		"zacos9-scribble", "zacos9-stash", "zacos9-keytags" };
+	for (size_t i = 0; app_id && i < sizeof(own) / sizeof(own[0]); i++) {
+		if (strcmp(app_id, own[i]) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/* Other programs' main windows open almost full-screen, leaving a strip of
+ * desktop on every side so the disk icons stay in view. Dialogs, fixed-size
+ * windows and those of ours above keep their own sizes. */
+bool view_default_frame(struct plat_view *view, const char *app_id,
+		struct wlr_box *frame, int *content_w, int *content_h) {
+	struct wlr_surface *surface = view->impl->get_surface(view);
+	int hx, hy;
+	if (view->fullscreen || view->impl->has_parent(view) || !view_resizable(view) ||
+			sizes_own_windows(app_id) ||
+			platinum_shell_style_for(surface) >= 0 ||
+			platinum_shell_position_for(surface, &hx, &hy)) {
+		return false;
+	}
+	struct plat_server *server = view->server;
+	struct wlr_box area = output_usable_area(server, server->cursor->x, server->cursor->y);
+	if (wlr_box_empty(&area)) {
+		return false;
+	}
+	struct wlr_box box = view_default_frame_in(area);
+	struct decor_margins m = decor_margins(DECOR_STYLE_DOCUMENT);
+	int w = box.width - m.left - m.right;
+	int h = box.height - m.top - m.bottom;
+	int min_w, min_h, max_w, max_h;
+	view->impl->get_size_limits(view, &min_w, &min_h, &max_w, &max_h);
+	w = max_w > 0 && w > max_w ? max_w : w;
+	h = max_h > 0 && h > max_h ? max_h : h;
+	w = w < min_w ? min_w : w;
+	h = h < min_h ? min_h : h;
+	w = w < VIEW_MIN_W ? VIEW_MIN_W : w;
+	h = h < VIEW_MIN_H ? VIEW_MIN_H : h;
+	*frame = box;
+	*content_w = w;
+	*content_h = h;
+	return true;
+}
+
+struct plat_view *view_topmost(struct plat_server *server) {
+	struct plat_view *view;
+	wl_list_for_each(view, &server->views, link) {
+		if (view->mapped && !view->hidden) {
+			return view;
+		}
+	}
+	return NULL;
+}
+
+static void set_active(struct plat_view *view, bool active) {
+	if (view->fullscreen) {
+		wlr_scene_node_reparent(&view->scene_tree->node,
+			active ? view->server->fullscreen_layer : view_window_layer(view));
+	}
+	view->impl->set_activated(view, active);
+	frame_set_active(view->frame, active);
+	if (!view->fullscreen) {
+		frame_commit(view->frame);
+	}
+	if (view->toplevel_handle) {
+		wlr_foreign_toplevel_handle_v1_set_activated(view->toplevel_handle, active);
+	}
+}
+
+/* A click on the desktop, as on the Mac, puts the Finder in front: its
+ * windows come forward above every other program's, in their own order
+ * (and back from Hide Finder), and no window stays active, so the menu
+ * bar shows the Finder's menus for the desktop. Clicking a window makes
+ * it active again. */
+void view_clear_focus(struct plat_server *server) {
+	/* server->views is front first: raising the Finder's from the back
+	 * forward keeps their order. */
+	struct plat_view *finder[64];
+	int n = 0;
+	struct plat_view *view;
+	wl_list_for_each(view, &server->views, link) {
+		if (n < (int)(sizeof(finder) / sizeof(finder[0])) && view->mapped &&
+				view->app_id && strcmp(view->app_id, "zacos9-finder") == 0) {
+			finder[n++] = view;
+		}
+	}
+	for (int i = n - 1; i >= 0; i--) {
+		view_set_hidden(finder[i], false);
+		wlr_scene_node_raise_to_top(&finder[i]->scene_tree->node);
+		wl_list_remove(&finder[i]->link);
+		wl_list_insert(&server->views, &finder[i]->link);
+	}
+	if (server->focused_view) {
+		set_active(server->focused_view, false);
+		server->focused_view = NULL;
+	}
+	view_popups_close(server, NULL);
+	platinum_shell_focus_changed(server);
+}
+
+static bool is_finder(struct plat_view *view) {
+	return view->app_id && strcmp(view->app_id, "zacos9-finder") == 0;
+}
+
+/* General Controls' "Show Desktop when in background", off: while another
+ * program is in front the Sniffer is hidden, windows and all (and it hides
+ * its desktop icons), so a stray click can't bring it forward. It comes
+ * back with Command-Tab, the Application menu, or when nothing else is
+ * left open. */
+bool view_desktop_shown(struct plat_server *server) {
+	return prefs_show_desktop() || !server->focused_view || is_finder(server->focused_view);
+}
+
+/* Nothing left in front: as on the Mac, the Sniffer comes forward. */
+static void focus_none(struct plat_server *server) {
+	if (!prefs_show_desktop()) {
+		view_clear_focus(server);
+	} else {
+		platinum_shell_focus_changed(server);
+	}
+}
+
+void view_set_hidden(struct plat_view *view, bool hidden) {
+	if (view->hidden == hidden || (hidden && view->system_prompt)) {
+		return;
+	}
+	struct plat_server *server = view->server;
+	if (hidden && server->grabbed_view == view) {
+		input_cancel_grab(server);
+	}
+	view->hidden = hidden;
+	wlr_scene_node_set_enabled(&view->scene_tree->node, !hidden);
+	if (view->toplevel_handle) {
+		wlr_foreign_toplevel_handle_v1_set_minimized(view->toplevel_handle, hidden);
+	}
+	if (hidden && server->focused_view == view) {
+		set_active(view, false);
+		server->focused_view = NULL;
+		struct plat_view *next = view_topmost(server);
+		if (next) {
+			view_focus(next);
+			platinum_shell_focus_changed(server);
+		} else {
+			if (!server->focused_layer) {
+				wlr_seat_keyboard_clear_focus(server->seat);
+			}
+			focus_none(server);
+		}
+	}
+	if (view->fullscreen) {
+		idle_update(server); /* hidden, it no longer keeps its screen awake */
+	}
+}
+
+void view_activate_app(struct plat_server *server, const char *app_id) {
+	/* server->views is front first: raising from the back forward keeps
+	 * the app's own order, and its front window ends up active. */
+	struct plat_view *mine[64];
+	int n = 0;
+	struct plat_view *view;
+	wl_list_for_each(view, &server->views, link) {
+		if (n < (int)(sizeof(mine) / sizeof(mine[0])) && view->mapped &&
+				view->app_id && strcmp(view->app_id, app_id) == 0) {
+			mine[n++] = view;
+		}
+	}
+	if (n == 0) {
+		if (strcmp(app_id, "zacos9-finder") == 0) {
+			/* As a click on the desktop: its keys go to the desktop. */
+			view_clear_focus(server);
+			struct plat_layer_surface *ls, *desktop = NULL;
+			wl_list_for_each(ls, &server->layer_surfaces, link) {
+				const char *ns = ls->layer_surface->namespace;
+				if (!desktop && ls->mapped && ns && strcmp(ns, "zacos9-desktop") == 0 &&
+						ls->layer_surface->current.keyboard_interactive !=
+						ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE) {
+					desktop = ls;
+				}
+			}
+			if (desktop) {
+				layers_focus(desktop);
+			} else if (!server->focused_layer) {
+				wlr_seat_keyboard_clear_focus(server->seat);
+			}
+		}
+		return;
+	}
+	for (int i = n - 1; i >= 0; i--) {
+		view_focus(mine[i]);
+	}
+}
+
+void view_close_front_app_window(struct plat_server *server, const char *app_id) {
+	if (!app_id || !*app_id) {
+		return;
+	}
+	struct plat_view *view;
+	wl_list_for_each(view, &server->views, link) {
+		if (view->mapped && view->app_id && strcmp(view->app_id, app_id) == 0) {
+			view_close(view);
+			return;
+		}
+	}
+}
+
+void view_hide_app(struct plat_server *server, const char *app_id) {
+	struct plat_view *view, *tmp;
+	wl_list_for_each_safe(view, tmp, &server->views, link) {
+		if (view->mapped && view->app_id && strcmp(view->app_id, app_id) == 0) {
+			view_set_hidden(view, true);
+		}
+	}
+}
+
+void view_focus(struct plat_view *view) {
+	if (!view) {
+		return;
+	}
+	struct plat_server *server = view->server;
+	/* While a password prompt is up, nothing else comes in front of it:
+	 * a click elsewhere, a new window, or a program asking to come forward
+	 * leaves the prompt where it is, with the keyboard. */
+	struct plat_view *prompt = system_prompt_shown(server);
+	if (prompt && !view->system_prompt) {
+		view = prompt;
+	}
+	platinum_shell_launch_ready(view);
+	if (view->hidden) {
+		view_set_hidden(view, false);
+	}
+	/* One pop-up window open at a time, and only while it is in front:
+	 * bringing a closed one forward opens it. */
+	view_popups_close(server, view);
+	if (view->popup && view->collapsed) {
+		view_set_collapsed(view, false);
+	}
+	wlr_scene_node_raise_to_top(&view->scene_tree->node);
+	wl_list_remove(&view->link);
+	wl_list_insert(&server->views, &view->link);
+
+	struct plat_view *prev = server->focused_view;
+	if (prev != view) {
+		if (prev) {
+			set_active(prev, false);
+		}
+		server->focused_view = view;
+		set_active(view, true);
+		if (!is_finder(view) && !prefs_show_desktop()) {
+			view_hide_app(server, "zacos9-finder");
+		}
+		platinum_shell_focus_changed(server);
+	}
+	/* While the menu bar tracks a menu (an exclusive layer) it keeps the
+	 * keyboard. A shell surface that merely had it - the desktop, after a
+	 * click or a drag on it - gives it up to the window coming forward, as
+	 * a click in a window already makes it (input.c), so a window opened
+	 * then (an alert, say) gets its keys. */
+	struct plat_layer_surface *fl = server->focused_layer;
+	if (fl && fl->layer_surface->current.keyboard_interactive !=
+			ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE) {
+		server->focused_layer = NULL;
+		fl = NULL;
+	}
+	if (!fl) {
+		input_keyboard_enter(server, view->impl->get_surface(view));
+	}
+}
+
+/* Finds the topmost surface or window frame under a point. Returns the
+ * window it belongs to, or NULL for the desktop and for frameless surfaces
+ * (X11 menus), which still come back through *surface. */
+struct plat_view *view_at(struct plat_server *server, double lx, double ly,
+		struct wlr_surface **surface, double *sx, double *sy) {
+	*surface = NULL;
+	struct wlr_scene_node *node =
+		wlr_scene_node_at(&server->scene->tree.node, lx, ly, sx, sy);
+	if (!node || node->type != WLR_SCENE_NODE_BUFFER) {
+		return NULL;
+	}
+	struct wlr_scene_buffer *scene_buffer = wlr_scene_buffer_from_node(node);
+	struct wlr_scene_surface *scene_surface =
+		wlr_scene_surface_try_from_buffer(scene_buffer);
+	if (scene_surface) {
+		*surface = scene_surface->surface;
+		/* A HiDPI X11 window is shown at 1/scale (xwayland.c). */
+		int scale = xwayland_surface_scale(*surface);
+		*sx *= scale;
+		*sy *= scale;
+	}
+
+	/* Walk up to the view's tree; frame buffers and surfaces both lead there. */
+	struct wlr_scene_tree *tree = node->parent;
+	while (tree && !tree->node.data) {
+		tree = tree->node.parent;
+	}
+	return tree ? tree->node.data : NULL;
+}
+
+enum decor_part view_part_at(struct plat_view *view, double lx, double ly) {
+	if (view->fullscreen) {
+		return DECOR_PART_CLIENT;
+	}
+	return decor_hit(&view->frame->st,
+		(int)lx - view->scene_tree->node.x, (int)ly - view->scene_tree->node.y);
+}
+
+/* The nearest place to v where the pattern starts again. */
+static int to_pattern(int v, int period) {
+	const int r = ((v % period) + period) % period;
+	return r <= period / 2 ? -r : period - r;
+}
+
+/* At 1.25, 1.5 or 1.75 a window's contents start where its screen's pixel
+ * pattern does (lib/draw.c pl_snap: every 4 / gcd(quarters, 4) logical
+ * pixels), so the window's own pixels and its frame's fall alike, and
+ * look the same wherever it is moved: it moves in steps of 2 or 4. */
+static void snap_to_pixels(struct plat_view *view, int *x, int *y) {
+	struct plat_server *server = view->server;
+	const struct wlr_box frame = view_frame_box(view);
+	struct plat_output *output = output_at(server, *x + frame.width / 2.0, *y + DECOR_TOP / 2.0);
+	if (!output || view->fullscreen) {
+		return;
+	}
+	const int q = (int)(output->wlr_output->scale * 4 + 0.5f);
+	if (q % 4 == 0) {
+		return;
+	}
+	const int period = q % 2 ? 4 : 2;
+	struct wlr_box box;
+	wlr_output_layout_get_box(server->output_layout, output->wlr_output, &box);
+	/* Where the client's buffer starts in the window (view_update_frame). */
+	struct wlr_box geo;
+	view->impl->get_geometry(view, &geo);
+	const struct decor_margins m = decor_margins(view->frame->st.style);
+	*x += to_pattern(*x + m.left - geo.x - box.x, period);
+	*y += to_pattern(*y + m.top - geo.y - box.y, period);
+}
+
+void view_move_to(struct plat_view *view, int x, int y) {
+	snap_to_pixels(view, &x, &y);
+	wlr_scene_node_set_position(&view->scene_tree->node, x, y);
+	frame_commit(view->frame); /* its pixels may fall differently there */
+	if (view->impl->moved) {
+		view->impl->moved(view);
+	}
+	platinum_shell_report_position(view);
+}
+
+void view_resize_frame(struct plat_view *view, struct wlr_box box) {
+	snap_to_pixels(view, &box.x, &box.y);
+	wlr_scene_node_set_position(&view->scene_tree->node, box.x, box.y);
+	frame_commit(view->frame);
+	platinum_shell_report_position(view);
+	struct decor_margins m = decor_margins(view->frame->st.style);
+	view->impl->set_size(view, box.width - m.left - m.right,
+		box.height - m.top - m.bottom);
+}
+
+void view_set_fullscreen(struct plat_view *view, bool fullscreen, struct wlr_output *requested) {
+	struct plat_server *server = view->server;
+	if (fullscreen) {
+		struct plat_output *output, *chosen = NULL;
+		wl_list_for_each(output, &server->outputs, link) {
+			if (output->wlr_output == requested) {
+				chosen = output;
+				break;
+			}
+		}
+		if (!chosen) {
+			struct wlr_box frame = view_frame_box(view);
+			chosen = output_at(server, frame.x + frame.width / 2.0, frame.y + frame.height / 2.0);
+		}
+		if (!chosen) {
+			return;
+		}
+		struct wlr_box box;
+		wlr_output_layout_get_box(server->output_layout, chosen->wlr_output, &box);
+		if (wlr_box_empty(&box)) {
+			return;
+		}
+		if (server->grabbed_view == view) {
+			input_cancel_grab(server);
+		}
+		if (!view->fullscreen) {
+			view_set_collapsed(view, false);
+			view->unfullscreen = view_frame_box(view);
+			if (view->unfullscreen.width <= 0 || view->unfullscreen.height <= 0) {
+				view->unfullscreen.width = frame_outer_w(view->frame, 640);
+				view->unfullscreen.height = frame_outer_h(view->frame, 400);
+			}
+		}
+		view->fullscreen = true;
+		view->fullscreen_output = chosen->wlr_output;
+		view->impl->set_fullscreen(view, true);
+		wlr_scene_node_set_position(&view->scene_tree->node, box.x, box.y);
+		view->impl->set_size(view, box.width, box.height);
+		wlr_scene_node_reparent(&view->scene_tree->node,
+			server->focused_view == view ? server->fullscreen_layer : server->view_layer);
+	} else {
+		if (!view->fullscreen) {
+			view->impl->set_fullscreen(view, false);
+			return;
+		}
+		view->fullscreen = false;
+		view->fullscreen_output = NULL;
+		view->impl->set_fullscreen(view, false);
+		wlr_scene_node_reparent(&view->scene_tree->node, view_window_layer(view));
+		if (server->focused_view == view) {
+			wlr_scene_node_raise_to_top(&view->scene_tree->node);
+		}
+		view_resize_frame(view, view->unfullscreen);
+		view->frame->dirty = true;
+	}
+	view_update_frame(view);
+	if (view->toplevel_handle) {
+		wlr_foreign_toplevel_handle_v1_set_fullscreen(view->toplevel_handle, fullscreen);
+	}
+	idle_update(server); /* a full-screen window keeps its screen awake */
+}
+
+void view_refresh_fullscreen(struct plat_server *server) {
+	struct plat_view *view;
+	wl_list_for_each(view, &server->views, link) {
+		if (view->fullscreen) {
+			view_set_fullscreen(view, true, view->fullscreen_output);
+		}
+	}
+}
+
+void view_close(struct plat_view *view) {
+	view->impl->close(view);
+}
+
+void view_toggle_zoom(struct plat_view *view, bool fill) {
+	if (view->fullscreen) {
+		return;
+	}
+	if (view->collapsed) {
+		view_set_collapsed(view, false);
+	}
+	if (view->zoomed) {
+		view->zoomed = false;
+		view_resize_frame(view, view->unzoomed);
+		return;
+	}
+
+	struct wlr_box frame = view_frame_box(view);
+	struct plat_server *server = view->server;
+	struct wlr_output *output = wlr_output_layout_output_at(server->output_layout,
+		frame.x + frame.width / 2.0, frame.y + frame.height / 2.0);
+	struct wlr_box screen;
+	wlr_output_layout_get_box(server->output_layout, output, &screen);
+	if (wlr_box_empty(&screen)) {
+		return;
+	}
+
+	/* TODO: Mac OS zooms to the app's "standard state"; for Linux clients
+	 * we use the area below the menu bar with a 3 px margin. */
+	const int margin = 3;
+	struct wlr_box area = output_usable_area(server,
+		frame.x + frame.width / 2.0, frame.y + frame.height / 2.0);
+	if (!wlr_box_empty(&area)) {
+		screen = area;
+	}
+	struct wlr_box zoomed = {
+		.x = screen.x + margin,
+		.y = screen.y + margin,
+		.width = screen.width - 2 * margin - DECOR_SHADOW,
+		.height = screen.height - 2 * margin - DECOR_SHADOW,
+	};
+	int sw, sh;
+	struct wlr_surface *surface = view->impl->get_surface(view);
+	if (!fill && surface && platinum_shell_standard_size_for(surface, &sw, &sh)) {
+		/* "Just big enough": the standard size where the window is, moved
+		 * only as far as it takes to stay on screen. */
+		struct decor_margins m = decor_margins(view->frame->st.style);
+		struct wlr_box want = {
+			.x = frame.x, .y = frame.y,
+			.width = sw + m.left + m.right, .height = sh + m.top + m.bottom,
+		};
+		want.width = want.width < zoomed.width ? want.width : zoomed.width;
+		want.height = want.height < zoomed.height ? want.height : zoomed.height;
+		if (want.x + want.width > zoomed.x + zoomed.width) {
+			want.x = zoomed.x + zoomed.width - want.width;
+		}
+		if (want.y + want.height > zoomed.y + zoomed.height) {
+			want.y = zoomed.y + zoomed.height - want.height;
+		}
+		want.x = want.x < zoomed.x ? zoomed.x : want.x;
+		want.y = want.y < zoomed.y ? zoomed.y : want.y;
+		zoomed = want;
+	}
+	view->unzoomed = frame;
+	view->zoomed = true;
+	view_resize_frame(view, zoomed);
+}
+
+void view_set_collapsed(struct plat_view *view, bool collapsed) {
+	if (view->fullscreen) {
+		return;
+	}
+	if (view->collapsed == collapsed) {
+		return;
+	}
+	view->collapsed = collapsed;
+	if (view->surface_tree) {
+		wlr_scene_node_set_enabled(&view->surface_tree->node, !collapsed);
+	}
+	frame_set_collapsed(view->frame, collapsed);
+	frame_commit(view->frame);
+	view_popup_layout(view);
+	window_sound_collapse(collapsed);
+}
+
+void view_set_pressed(struct plat_view *view, enum decor_part part) {
+	frame_set_pressed(view->frame, part);
+	frame_commit(view->frame);
+}
+
+static void handle_request_activate(struct wl_listener *listener, void *data) {
+	struct plat_view *view = wl_container_of(listener, view, handle_request_activate);
+	view_focus(view);
+}
+
+static void handle_request_minimize(struct wl_listener *listener, void *data) {
+	struct plat_view *view = wl_container_of(listener, view, handle_request_minimize);
+	struct wlr_foreign_toplevel_handle_v1_minimized_event *event = data;
+	view_set_hidden(view, event->minimized);
+}
+
+static void handle_request_close(struct wl_listener *listener, void *data) {
+	struct plat_view *view = wl_container_of(listener, view, handle_request_close);
+	view_close(view);
+}
+
+static void handle_request_fullscreen(struct wl_listener *listener, void *data) {
+	struct plat_view *view = wl_container_of(listener, view, handle_request_fullscreen);
+	struct wlr_foreign_toplevel_handle_v1_fullscreen_event *event = data;
+	view_set_fullscreen(view, event->fullscreen, event->output);
+}
+
+static void create_toplevel_handle(struct plat_view *view) {
+	struct plat_server *server = view->server;
+	struct wlr_foreign_toplevel_handle_v1 *h =
+		wlr_foreign_toplevel_handle_v1_create(server->foreign_toplevel_mgr);
+	if (!h) {
+		return;
+	}
+	view->toplevel_handle = h;
+	wlr_foreign_toplevel_handle_v1_set_title(h,
+		view->frame->title_str ? view->frame->title_str : "");
+	wlr_foreign_toplevel_handle_v1_set_app_id(h, view->app_id ? view->app_id : "");
+	wlr_foreign_toplevel_handle_v1_set_fullscreen(h, view->fullscreen);
+	struct wlr_box box = view_frame_box(view);
+	struct plat_output *output =
+		output_at(server, box.x + box.width / 2.0, box.y + box.height / 2.0);
+	if (output) {
+		wlr_foreign_toplevel_handle_v1_output_enter(h, output->wlr_output);
+	}
+	view->handle_request_activate.notify = handle_request_activate;
+	wl_signal_add(&h->events.request_activate, &view->handle_request_activate);
+	view->handle_request_minimize.notify = handle_request_minimize;
+	wl_signal_add(&h->events.request_minimize, &view->handle_request_minimize);
+	view->handle_request_close.notify = handle_request_close;
+	wl_signal_add(&h->events.request_close, &view->handle_request_close);
+	view->handle_request_fullscreen.notify = handle_request_fullscreen;
+	wl_signal_add(&h->events.request_fullscreen, &view->handle_request_fullscreen);
+}
+
+static void destroy_toplevel_handle(struct plat_view *view) {
+	if (!view->toplevel_handle) {
+		return;
+	}
+	wl_list_remove(&view->handle_request_activate.link);
+	wl_list_remove(&view->handle_request_minimize.link);
+	wl_list_remove(&view->handle_request_close.link);
+	wl_list_remove(&view->handle_request_fullscreen.link);
+	wlr_foreign_toplevel_handle_v1_destroy(view->toplevel_handle);
+	view->toplevel_handle = NULL;
+}
+
+void view_handle_map(struct plat_view *view) {
+	view->mapped = true;
+	view->hidden = false;
+	wlr_scene_node_set_enabled(&view->scene_tree->node, true);
+	view_update_frame(view);
+	struct plat_server *server = view->server;
+	struct wlr_box area = output_usable_area(server, server->cursor->x, server->cursor->y);
+	struct wlr_box frame = view_frame_box(view);
+	int hx, hy;
+	if (view->fullscreen) {
+		view_set_fullscreen(view, true, view->fullscreen_output);
+	} else if (view->popup) {
+		view_popup_layout(view); /* docked at the bottom, not where it was a window */
+	} else if (platinum_shell_position_for(view->impl->get_surface(view), &hx, &hy)) {
+		/* Spatial: back where its program remembers it, but always with
+		 * the title bar on screen and below the menu bar. */
+		if (!wlr_box_empty(&area)) {
+			hx = hx > area.x + area.width - 40 ? area.x + area.width - 40 : hx;
+			hx = hx + frame.width < area.x + 40 ? area.x + 40 - frame.width : hx;
+			hy = hy > area.y + area.height - 30 ? area.y + area.height - 30 : hy;
+			hy = hy < area.y ? area.y : hy;
+		}
+		view_move_to(view, hx, hy);
+	} else if (view->frame->st.style == DECOR_STYLE_MOVABLE_MODAL) {
+		/* Mac OS puts alerts and dialogs centred, a third of the way down. */
+		view_move_to(view, area.x + (area.width - frame.width) / 2,
+			area.y + (area.height - frame.height) / 3);
+	}
+	wl_list_remove(&view->link); /* never in the list twice */
+	wl_list_insert(&view->server->views, &view->link);
+	create_toplevel_handle(view);
+	view_focus(view);
+	platinum_shell_report_position(view);
+}
+
+void view_handle_unmap(struct plat_view *view) {
+	struct plat_server *server = view->server;
+	if (view->fullscreen) {
+		view_set_fullscreen(view, false, NULL);
+	}
+	view->mapped = false;
+	/* The frame goes with the window. A window hidden but not closed (a
+	 * splash screen once the program is up, a palette put away) kept its
+	 * title bar on screen until the program quit (issue #33). */
+	wlr_scene_node_set_enabled(&view->scene_tree->node, false);
+	destroy_toplevel_handle(view);
+	if (view == server->grabbed_view) {
+		input_cancel_grab(server);
+	}
+	if (view == server->last_click_view) {
+		server->last_click_view = NULL;
+	}
+	wl_list_remove(&view->link);
+	wl_list_init(&view->link);
+
+	/* Like the Mac, activate the next window in line. */
+	if (server->focused_view == view) {
+		server->focused_view = NULL;
+		struct plat_view *next = view_topmost(server);
+		if (next) {
+			view_focus(next);
+			platinum_shell_focus_changed(server);
+		} else {
+			focus_none(server);
+		}
+	}
+}
+
+void view_handle_destroy(struct plat_view *view) {
+	if (view->mapped) {
+		view_handle_unmap(view);
+	}
+	wl_list_remove(&view->link);
+	frame_destroy(view->frame);
+	free(view->app_id);
+	wlr_scene_node_destroy(&view->scene_tree->node);
+	free(view);
+}

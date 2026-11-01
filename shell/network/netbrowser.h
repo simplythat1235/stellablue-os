@@ -1,0 +1,40 @@
+#pragma once
+
+#include <QWidget>
+#include <vector>
+
+#include "discovery.h"
+#include "panelkit.h"
+
+/*
+ * zacos9-netbrowser: the Network Browser, from the Apple menu. Lists
+ * what Bonjour and our own WS-Discovery probe find; "Connect to
+ * Server…" for anything that doesn't announce itself. Not pixel-
+ * measured (see docs/network.md).
+ */
+class NetBrowserWindow : public QWidget {
+public:
+	NetBrowserWindow();
+	/* Log in to a server and mount what's chosen (also the Zac menu's
+	 * Recent Servers: zacos9-netbrowser --connect afp|smb ADDRESS). */
+	void connectTo(const QString &address, DiscoveredServer::Kind kind);
+
+protected:
+	void paintEvent(QPaintEvent *) override;
+	void mousePressEvent(QMouseEvent *) override;
+	void mouseMoveEvent(QMouseEvent *) override;
+	void mouseReleaseEvent(QMouseEvent *) override;
+	void wheelEvent(QWheelEvent *) override;
+	void mouseDoubleClickEvent(QMouseEvent *) override;
+	void keyPressEvent(QKeyEvent *) override;
+
+private:
+	void scan();
+	void connectToServer();
+
+	std::vector<DiscoveredServer> m_found;
+	PanelList m_list;
+	PanelButton m_connect, m_scan;
+	PanelHost m_host{ this };
+	QString m_status;
+};

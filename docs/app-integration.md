@@ -1,0 +1,454 @@
+# Other people's applications in ZacOS 9: plan and status
+
+How far third-party programs (GTK, Qt, Electron, ...) look and behave like
+Mac OS 9 Platinum, what is done, and what to do next. Written to resume
+from: read this, then `git log -- shell/qtstyle share/themes` for the latest changes.
+
+## The approach
+
+Applications can't be forced to look right; each layer is covered with what
+works for it:
+
+| Layer | Who draws it | How we cover it | State |
+|---|---|---|---|
+| Window frame | zacos9-wm (server-side decorations) | session asks toolkits not to draw their own | done |
+| Controls and standard prompts | the toolkit | a Platinum theme/style per toolkit | GTK 3 and Qt 6; GTK 4 stylesheet added, unverified |
+| Menus | the application, inside its window | global menu: the app's menus in our menu bar | Qt 6, GTK 3 Wayland and Electron (under X11) implemented |
+| App-owned UI | Electron, libadwaita, custom-drawn dialogs | no reliable override | known gap |
+
+## Done
+
+- **Picture Viewer** (`shell/picture/`, `zacos9-picture`): images
+  double-clicked in the Finder open here; `share/xdg/zacos9-mimeapps.list`
+  makes it the default for image types. A user's own `~/.config/mimeapps.list`
+  still wins. It opens a picture fitted to the screen (never enlarged), sizes
+  its window to the picture (zacos9-wm exempts it from the near-full-screen
+  default frame), and zooms in fixed steps from 1/16 to 16× with the bar's
+  − / + buttons, ⌘+ / ⌘−, ⌘0, ⌘9 or ⌘-scroll. Drag to pan.
+- **Standard application file chooser**: the session selects the ZacOS
+  `FileChooser` portal for GTK and Qt standard dialogs. Its first screen lists
+  Zacintosh HD, mounted data volumes and Desktop folder aliases, without a
+  places sidebar; the subsequent file browser also has no sidebar. The
+  Zacintosh HD shows the Finder's Macintosh view, not the Unix root: System
+  Folder, Applications, Home and the user's own top-level folders. The backend
+  builds this as a read-only tree under `$XDG_RUNTIME_DIR/zacos9-file-chooser`
+  for each request. Real folders behind the view (Home, Appearance, Fonts,
+  Preferences, user folders) are links to those folders, and each installed
+  application appears by name as a link to its `.desktop` launcher. Generated
+  listings (Control Panels, Extensions, Unix) are omitted. Items can only be
+  chosen or saved inside the real folders; the view's own folders are browse
+  only. Applications receive real paths, never the chooser's links. Building
+  the view requires the Finder's application scan (about 5 seconds the first
+  time), so the backend warms up at start and the session starts the backend at
+  login. Requests arriving during the scan wait for it; closing one cancels it
+  immediately. Every request starts
+  at the location list, ignoring app-suggested Home/current folders. Desktop
+  folder aliases appear under their Desktop names with italic labels and
+  Platinum folder icons. They may point to any directory, including mounted
+  AFP or Windows/SMB shares and their subfolders; document aliases are omitted.
+  Choosing one opens its resolved folder, and open, folder and save requests
+  return real target paths. Desktop folder aliases can also be followed from
+  Home/Desktop inside Zacintosh HD. Missing or changed aliases report an error
+  rather than falling back to Home; repair them using Finder's Fix Alias.
+  This refinement was installed in the live session on 2026-10-08 and is
+  included in 0.1.38. The restarted backend responds on D-Bus;
+  the user confirmed the live AFP disk works after remounting. Live SMB
+  selection still needs confirmation.
+  The browser stays within the selected drive or alias target: Unix ancestors
+  are not offered, and typed paths or symlinks outside that location cannot be
+  selected. Cancel and reopen to choose another location. This is a navigation
+  restriction, not an application sandbox. App-specific custom pickers are not rewritten.
+  Read-only drives remain available for opening files. Mac/APFS drives are
+  discovered from active mount records with their Desktop names, even when
+  GIO or Qt storage enumeration omits their FUSE mounts. AFP and kernel SMB
+  disks are also discovered from active mount records, preserving spaces in
+  their names and listing them even when an I/O error prevents Qt from
+  recognizing them as ready. GVFS Windows shares use their local GVFS paths
+  and share names, since GIO normally reports their roots as SMB URLs.
+  The correction was installed live on 2026-10-08; the live location screen
+  was visually verified to include the mounted AFP disk `adam's home`.
+  An unavailable drive
+  reports an error instead of falling back to Home. Drive icons are rendered by
+  the same Platinum painter as the Finder Desktop: the 32-pixel disk icon,
+  nearest-neighbour scaled for HiDPI, with the Desktop's USB badge on USB
+  volumes. A rejected outside item is cleared from the selection so a later
+  valid choice is accepted. The Macintosh view and the login warm-up have
+  offscreen regressions but have not yet been confirmed in the live session.
+  The 0.1.36 backend incorrectly rejected real D-Bus option dictionaries,
+  including VS Code's requests. The correction decodes those dictionaries and
+  nested arrays, supports request cancellation, and keeps the backend alive
+  between dialogs. Regression tests exercise real D-Bus file/folder/save
+  requests, multi-file save names, cancellation, and repeated backend use.
+  Automated tests use an offscreen Qt display; they do not establish visual
+  behavior across all GTK/Qt/Electron applications.
+  After installing the correction, the user confirmed live VS Code file/folder
+  selection works, Home files are accessible through Zacintosh HD, and both
+  mounted ChromaSystem Professional drives appear. Other applications and
+  saving to read-only drives have not been live-tested.
+  See [Desktop files and aliases](vfs.md#desktop-files-and-aliases).
+- **Session defaults** (`session/zacos9-session`): `GTK_CSD=0`,
+  `QT_WAYLAND_DISABLE_WINDOWDECORATION=1`, `GTK_THEME=ZacOS9`,
+  `QT_STYLE_OVERRIDE=zacos9`, and GTK/Qt portal selection. GTK 3 already took
+  our frames before this; it is a safeguard.
+- **GTK 3 theme** `share/themes/ZacOS9/gtk-3.0/gtk.css`, installed to
+  `/usr/share/themes`. Adwaita imported as the base, then restyled: grey
+  outlined buttons, square corners, sunk white fields, flat grey menu bar and
+  menus, lavender selection, Platinum tabs, check boxes and scroll bars, and
+  compact Platinum message dialogs with emphasized default actions. Checked
+  on screen with Mousepad (menu bar, File menu, Preferences dialog); other
+  applications' prompts have not been visually exercised.
+  To try it from a build tree: `XDG_DATA_DIRS=$PWD/share:/usr/share`.
+- **GTK 4 theme** `share/themes/ZacOS9/gtk-4.0/gtk.css` supplies the same
+  palette, controls, and prompt treatment to GTK 4 applications which honor
+  GTK themes. GTK 4 is not installed in the current build environment, so
+  this stylesheet has not been runtime-validated. Libadwaita and applications
+  that draw their own dialogs can ignore GTK themes.
+- **Qt 6 style** `shell/qtstyle/` -> `<libdir>/qt6/plugins/styles/zacos9style.so`.
+  A `QProxyStyle` over Fusion with a Platinum palette; push buttons (and the
+  default ring), check boxes, radio buttons, text-field frames and scroll bars
+  are drawn by `lib/widgets.c`, so they match our own programs pixel for pixel.
+  Standard Qt dialogs and message prompts inherit the same palette and
+  controls. Scroll bar geometry is in `subControlRect` (arrows at both ends,
+  fixed 17-px thumb). Checked with `build/qtdemo.cpp` (thumb drag and arrows
+  work); prompts are covered by an offscreen palette regression check.
+  To try it from a build tree: copy `build/shell/qtstyle/zacos9style.so` into
+  `<dir>/styles/` and set `QT_PLUGIN_PATH=<dir> QT_STYLE_OVERRIDE=zacos9`.
+- **X11 frame re-fit** (`compositor/src/xwayland.c`, `set_geometry`): for
+  VS Code's resize glitch (the frame kept the old size after an outline
+  resize). Unconfirmed by the user.
+
+## Global-menu implementation history
+
+Goal: an application's menus (File, Edit, ...) appear in ZacOS 9's menu bar
+when its window is in front, and its in-window menu bar disappears, as on a
+Mac. Applications without support keep their own menus.
+
+The standard mechanism is D-Bus:
+- A registrar service, `com.canonical.AppMenu.Registrar`
+  (`RegisterWindow(windowId, menuObjectPath)`), which our menu bar would own.
+- Each application exports its menu as `com.canonical.dbusmenu` at that path;
+  the menu bar reads the layout (`GetLayout`), shows it, and sends `Event`
+  ("clicked") back.
+
+Steps:
+1. **Find out what works on Wayland in Debian 13 first.** The registrar keys
+   windows by X11 window id. On Wayland:
+   - GTK 3: `appmenu-gtk3-module` (Debian package of that name) exports
+     dbusmenu; check how it identifies a Wayland window (it may only work
+     under XWayland).
+   - Qt 6: Qt has built-in dbusmenu export (`QDBusMenuBar`, used by its
+     generic Unix platform theme when the registrar exists); on Wayland KDE
+     pairs it with the `org_kde_kwin_appmenu` protocol to say which surface a
+     menu belongs to. Check whether Qt 6.8 sends that without KDE's
+     integration plugin.
+   - Write down which toolkits can be supported before building anything.
+
+   **Findings (2026-10-04, on the installed system: Debian 13, Qt 6.8.2,
+   GTK 3.24, appmenu-gtk3-module 25.04).** Tested with a stand-in
+   registrar (owns the name, logs `RegisterWindow`, then calls `GetLayout`)
+   and two small test windows with a File and an Edit menu.
+   - **Qt 6: works, on Wayland and X11, with nothing extra installed.** As
+     soon as the registrar name is owned, Qt registers `/MenuBar/N` and
+     **hides its own in-window menu bar** (`isNativeMenuBar()` is true), so
+     the menu bar must own the name only when it can show the menus.
+     `GetLayout` returned File and Edit. On Wayland the window id is
+     meaningless (`winId()` = 1, a counter); on X11 it is the real XID. So on
+     Wayland, menus are matched to windows by the **D-Bus sender's PID**
+     (`GetConnectionUnixProcessID`) against the front window's client PID.
+     Qt registers twice while a window opens (unregister, register a new
+     path); the first `GetLayout` timed out because the app was still busy
+     opening - fetch asynchronously and use the latest registration.
+   - **GTK 3 (`appmenu-gtk3-module`): not on Wayland without more work.** On
+     Wayland the module ignores the registrar and calls
+     `gdk_wayland_window_set_dbus_properties_libgtk_only`, i.e. GTK's
+     private `gtk_shell1` protocol (`gtk_surface1.set_dbus_properties`),
+     which zacos9-wm doesn't implement (it logged a GDK critical and did
+     nothing). The menus it exports there are `org.gtk.Menus` /
+     `org.gtk.Actions` (GMenuModel), not dbusmenu - a second format to read.
+     Under X11 it saw the registrar but never registered (not investigated).
+   - **GTK 4 / libadwaita, Electron**: no global menu support on Wayland;
+     they keep their own menus.
+   - **What the menu bar is missing:** it learns the front window's app id
+     from foreign-toplevel (`shell/menubar/toplevels.c`) but not its PID.
+     Proposed: `platinum_shell_v1` version 2 gets an event giving the front
+     window's client PID (`wl_client_get_credentials` in zacos9-wm).
+
+   **Decision:** build Qt 6 first (registrar + dbusmenu + PID from
+   zacos9-wm). GTK 3 (`gtk_shell1` + GMenuModel) is a separate, later step.
+   That GTK step is now implemented below; these findings describe the
+   original investigation, not the current implementation status.
+2. **Menu bar side** (`shell/menubar/`, C): own the registrar, track the
+   front window's app id / surface, fetch its dbusmenu layout, draw it with
+   the existing menu drawing (`lib/menudraw.c`), forward clicks. If the
+   compositor must tell the menu bar which window is in front, the
+   foreign-toplevel handles it already uses (`toplevels.c`) may be enough;
+   a surface-to-menu mapping may need `org_kde_kwin_appmenu` in zacos9-wm.
+3. **Keep the Apple menu and the application menu** (right side) as they are.
+4. Test with a Qt 6 program (GTK 3 after the separate GTK step).
+
+## Global menus, Qt 6: built (step 2)
+
+- `shell/menubar/appmenu.c` owns `com.canonical.AppMenu.Registrar` (only
+  when zacos9-wm offers `platinum_shell_v1` version 2), keeps each
+  program's latest registration, fetches `GetLayout` asynchronously and
+  again on `LayoutUpdated` / `ItemsPropertiesUpdated`, drops a program's
+  menus when it leaves the bus, and sends `Event(id, "clicked")` for a
+  chosen item. GLib's main context runs inside the menu bar's `poll()`.
+- zacos9-wm sends the front window's client pid
+  (`platinum_shell_v1.active_client`, new in version 2; for an X11 window
+  its own pid, not Xwayland's). `menus_rebuild` shows the front program's
+  menus after the logo menu instead of the generic File/Edit; programs
+  without them keep the generic ones.
+- Shown: labels (mnemonics stripped), separators, disabled items, check
+  and radio state, ⌘ shortcuts for Control+letter, one level of submenu
+  (deeper ones are shown disabled). `AboutToShow` is sent once for each
+  empty menu and submenu, then the layout is fetched again: Electron exports
+  them empty and fills them only then. Not done: icons, the Quit
+  item Mac programs have (a Qt program's File menu has its own or none).
+- Tested in a nested session (`dbus-run-session`, a Qt 6 test window): its
+  File and Edit menus appear in our bar and its own menu bar disappears;
+  File > Open ran the program's action; Edit > More opens its submenu;
+  after it quits the Finder's menus come back; foot keeps the generic
+  menus. Debug: `ZACOS9_APPMENU_DEBUG=1` logs registrations and the
+  front pid. Not yet tried with a real Qt program or on the installed system.
+
+## Global menus, GTK 3 Wayland: implemented (0.1.15)
+
+- The compositor implements the version-one `gtk_shell1`/`gtk_surface1`
+  menu-property protocol. `platinum_shell_v1` version 4 sends the focused
+  surface's unique D-Bus name and menu/action paths to the menu bar. This
+  distinguishes windows in one process; version 2/3 clients remain compatible.
+- The menu bar imports `GDBusMenuModel` and `GDBusActionGroup` exports,
+  subscribes to menu/action updates, and renders sections, submenus,
+  enabled state, check/radio state and action targets. It forwards `app.`,
+  `win.` and legacy `unity.` actions. The bus owner's PID is checked
+  asynchronously against the focused process before importing exports;
+  stale clicks and unavailable owners do not activate another window's actions.
+- Native GTK application menus use GTK's built-in exports. Legacy
+  `GtkWindow`/`GtkMenuBar` applications, including Galculator, use the small
+  `shell/gtkmenu/module.c` module and Debian's `libappmenu-gtk3-parser`.
+  The stock appmenu module attempts to publish legacy Wayland metadata before
+  the window is realized; this fails on the tested version 25.04. ZacOS's
+  module instead exports after realization and publishes the correct action
+  path. It reuses the maintained parser rather than implementing a second
+  menu-widget parser.
+- The session loads `GTK_MODULES=zacos9-appmenu` while preserving other
+  user modules, and propagates its settings to D-Bus-activated applications.
+  Legacy in-window menus hide only while the registrar is available, and
+  reappear if it exits. On unsupported desktops the module leaves them alone.
+- Tests run under a private D-Bus session and headless compositor. They
+  verify actual Galculator File/Edit/Help titles in the global-menu backend,
+  activate real legacy and native GTK actions through that backend, switch
+  between two GTK windows in one process, restore menus on close, and verify
+  in-window menu fallback. A real Qt fixture verifies existing registration
+  and action forwarding. Backend tests cover live updates, checked/radio
+  actions, owner disappearance, PID mismatches, invalid paths and stale
+  activations.
+
+The new compositor, menu bar, GTK module and session environment must be
+installed together; log out/in and restart applications after updating.
+GTK applications explicitly forced to X11, custom non-exported menus and
+Electron are not covered by this GTK Wayland path.
+
+An application window (`GtkApplicationWindow`) with a menu bar widget of its
+own and no menu model for GTK - GIMP 3's image window - is exported by the
+module like a plain window. GDK sends a window's menu properties once, when
+it is first shown, with the last values given, and GTK gives its own (no
+menu bar) when the window is realized; so the module connects after that
+realize handler (from `GtkApplication::window-added`) and gives ours in
+time, opening the session bus synchronously if it isn't open yet. Windows
+whose application has a menu model keep GTK's own export. Checked in a
+nested session with GIMP 3.0.4: its File ... Help menus in the menu bar, its
+own menu bar hidden, File > New... opened the New Image dialog. Installed
+live on 2026-10-10, the user confirmed GIMP's menus work.
+
+## Global menus, Electron (VS Code, ...): implemented
+
+Electron exports its menus (`com.canonical.AppMenu.Registrar` plus
+dbusmenu, through `libdbusmenu-glib.so.4`, which it loads at run time) only
+when it runs **under X11**. On Wayland it never does, on any desktop. So:
+
+- **Electron apps start under X11.** `lib/electron.c` recognises an Electron
+  app (`resources/app.asar` or `resources/app/` beside the binary, or one
+  folder up from a launcher script in `bin/`) and adds
+  `--ozone-platform=x11 --force-device-scale-factor=N` after the program,
+  N being the screen's scale from zacos9-wm's outputs file. The Finder
+  (`appdb.cpp`), Login Items (`autostart.cpp`, both through
+  `files/electronlaunch.h`) and the Apple menu (`menubar/launch.c`) do
+  this. Started from a terminal, an Electron app picks Wayland as before.
+- **The package depends on `libdbusmenu-glib4`**; without it Electron
+  silently keeps its menus.
+- **HiDPI X11 windows are sharp** (`compositor/src/xwayland.c`). An X11
+  window whose program was started with `--force-device-scale-factor`
+  equal to the screen's scale (read from `/proc/PID/cmdline`) gets a scale
+  of its own: its X11 positions and sizes are in pixels, its buffer is shown
+  at 1/scale, and pointer positions are multiplied back. Other X11 windows
+  (Classic, Wine, xterm) have scale 1 and are enlarged as before. Override-
+  redirect menus follow their program (`_NET_WM_PID`, else the front window).
+  At 1.25x, 1.5x and 1.75x every X11 window, Electron apps included, has
+  scale 1 and is enlarged (a little soft): the scaled path is whole-number
+  only. X11 has one scale for every screen: the main display's.
+- **Each screen its own scale** (Monitors' Pixel size applies to the
+  selected display: `display.NAME.scale` in `desktop.conf`, else `scale` on
+  the main screen — the panel writes `scale` alone while it shows one
+  screen — else 2x on a dense screen, else `-S`; `prefs_output_scale`,
+  `compositor/src/prefs.c`). A surface is told the scale of the screen it
+  is mostly on (`preferred_buffer_scale`, `wp_fractional_scale_v1`), also
+  when that screen's scale changes. Test: `fractional-scale`.
+- **The menu bar on every screen** (Monitors' Menu Bar on Every Display,
+  `menubar-every-display=1`): zacos9-menubar puts a bar on each screen,
+  naming its output, and zacos9-wm lets it (`may_choose_output`,
+  `compositor/src/layers.c`) where it keeps ZacOS's other shell surfaces on
+  the main display. Each bar has its screen's width and scale and reserves
+  20 px there; the bar last pointed at is the active one, and its menus
+  open on its screen. Contextual menus open on the active bar's screen.
+  Test: `menubar-displays`.
+- **1.25x, 1.5x and 1.75x** (Monitors' Pixel size; `scale=1.25`, `1.5` or
+  `1.75` in `desktop.conf`, `-S 1.5`). zacos9-wm offers
+  `wp_fractional_scale_v1` to every program, so those that take it (foot,
+  Firefox, Chromium, GTK 4, Qt 6) draw at exactly the scale; the rest are
+  asked for 2x buffers (`wl_output.scale` 2) and shown smaller.
+  ZacOS's own pixel art is drawn at the screen's own pixels: each 1x
+  pixel becomes one or two whole screen pixels, by one rounding everywhere
+  (`pl_snap`, `lib/draw.c`, the same as wlroots places buffers with), so
+  it stays sharp and every program's pixels and window frames line up.
+  The pattern repeats every 2 logical pixels at 1.5x and every 4 at 1.25x
+  and 1.75x, and a window's contents start where it does
+  (`snap_to_pixels`, `compositor/src/view.c`): windows move in steps of
+  2 or 4 there, and look the same wherever they are.
+  - Window frames (`frame.c`): drawn at the screen's pixels; the title
+    bar's stripes are drawn for the scale (`decor_paint_stripes_scaled`):
+    six even ridges, where scaled 1x stripes came out uneven.
+  - The menu bar, its menus, the lock and the screen saver (C programs):
+    `pl_snap_scale` into buffers of the screen's pixels, shown through a
+    viewport.
+  - Qt programs: Qt draws at the fractional scale itself; `blitPixels`
+    (`shell/common/pixels.h`, also the Qt style's) makes each 1x image at
+    the window's pixels from its place in the window.
+  - The pointer: the cursor theme has 20, 24 and 28 px sizes made the same
+    way (`tools/cursors/build_cursors.py`).
+  - Text in ZacOS's own fonts is drawn in fonts made for each of these
+    sizes (`assets/fonts/platinum-system-12-125|150|175.pfont`, likewise
+    `platinum-views-9-…`): crisp, every stem one thickness, where enlarged
+    1x letters had some stems one pixel and some two. A canvas with a text
+    log (`pl_canvas.log`, `lib/draw.c`) remembers the text drawn on it;
+    `pl_snap_scale_canvas` enlarges the picture without the 1x letters and
+    draws each text again (`text_render_scaled`, `lib/text.c`) where its
+    pen and baseline fall. The fonts were drafted by
+    `tools/fonts/build_scaled_fonts.py` and are meant to be touched up by
+    hand (it won't overwrite them without `--force`); `build_fonts.py`
+    compiles them. `ZACOS9_SCALED_FONTS=0` draws enlarged 1x letters
+    instead (tests compare pictures that way).
+  - Text drawn by Qt's own fonts (plain Qt widgets) is drawn at the scale,
+    smoothly. Other pixel art can't be even at these scales (four 1x pixels
+    on five screen pixels at 1.25x): some dots are a pixel bigger than
+    others.
+  Tests: `fractional-scale`, `frame-scale`, `menubar-scale`, `lock-scale`,
+  `panel-scale` (screenshots by `tools/rawshot/rawshot.c`: grim resamples
+  at these scales).
+- **Xwayland sees outputs in pixels** (`compositor/src/xwayland_output.c`):
+  its own `zxdg_output_manager_v1`, hidden from every other client, while
+  wlroots' manager is hidden from Xwayland. Without it the X11 root stays at
+  the layout's size and Xwayland would keep the pointer out of the right and
+  bottom of a scaled window. Each output reaches from its layout corner to
+  its pixel corner, though, not just its pixels: ordinary (1x) X11 windows
+  keep layout coordinates, and with two screens at scale 2, one away from
+  the layout's origin, a 1x window there was outside every X11 output, so
+  X11 kept the pointer off it. Adobe Reader 9's menu bar ignored every
+  click until the scale was turned off. X11 outputs may overlap; at scale 1
+  nothing changes (test: `xwayland-output`).
+- **Games get raw mouse motion and pointer lock** (`compositor/src/input.c`):
+  zacos9-wm offers `zwp_relative_pointer_manager_v1` and
+  `zwp_pointer_constraints_v1`. Without the first, Xwayland's XInput2 raw
+  motion comes from its absolute `xwayland-pointer`, and SDL 2 (2.30.6,
+  linked into Steam's DOSBox for Lost Eden) turns absolute raw values into
+  deltas as previous − current: the mouse moved backwards. With it the raw
+  motion comes from `xwayland-relative-pointer`. Xwayland confines the
+  pointer for a grab and locks it to emulate a warp while the cursor is
+  hidden. A constraint holds only while its surface has the pointer and its
+  program has the keyboard (comparing programs, because Xwayland's
+  override-redirect windows never take the keyboard), so ⌘-Tab frees the
+  mouse; on unlock the cursor goes to the program's position hint.
+- **Not every "Electron" app has the exporter.** The ChatGPT desktop app
+  (`/usr/lib/chatgpt`, checked 2026-10-10) reports Electron 42 but runs on
+  OpenAI's own runtime ("owl", Chromium 155) without Electron's Linux
+  global-menu code (no `libdbusmenu-glib` loader, no
+  `ELECTRON_FORCE_WINDOW_MENU_BAR`): it sets an application menu but never
+  registers it, and its main window draws its menus in HTML. Nothing to
+  read on our side short of scraping the window over AT-SPI.
+- **The app must use a native menu bar.** VS Code does only with
+  `"window.titleBarStyle": "native"` (its default custom title bar draws
+  menus in HTML and never exports them). So when a ZacOS launcher starts
+  VS Code or a relative (VSCodium, Code - OSS, Cursor: an Electron app with
+  a `product.json` naming its settings folder, `nameShort`), it adds that
+  setting to `~/.config/<nameShort>/User/settings.json`, unless the person
+  chose a title bar style there already, either way
+  (`pl_code_use_native_title_bar`). The file is read the way VS Code reads
+  it, as JSON with comments: the setting goes straight after the
+  top-level object's opening brace (not a brace in a comment or string),
+  and a style only mentioned in a comment doesn't count as chosen. A file
+  that isn't one whole object, can't be read, or is a symlink to nothing is
+  left untouched; otherwise it is rewritten whole (any size), keeping its
+  permissions, and through a symlink to its real file. Each account gets it on its first
+  launch from the Finder or the Apple menu after updating. With the native title bar it has
+  no in-window menu bar: Electron hides it once the registrar is there.
+
+Tested (2026-10-10): VS Code 1.141.0 (Electron 43) under X11 on the live session
+exported File ... Help and the menu bar showed them. In a nested zacos9-wm at
+2x, VS Code opened at its normal size and sharp, a click landed on the icon
+under the pointer, and the pointer stayed its normal size; xmessage (1x) looked
+as before. Installed live, the menu titles appeared but the menus were empty
+until the menu bar sent `AboutToShow` (above); with that, in a nested session,
+File > New Text File opened a new editor. Not yet tried with another Electron
+app.
+
+Known costs: on every commit wlroots resizes a scene buffer to its surface
+and xwayland.c resizes it back, so a scaled X11 window is fully redrawn each
+frame (no partial damage). Changing the screen's scale needs the Electron app
+restarted (its scale factor is fixed at launch). If an Electron app runs under
+X11 without the scale argument it draws at 1x and is enlarged (blurry), as
+before.
+
+## Global menus, LibreOffice: through its GTK 3 backend
+
+Debian's `libreoffice` brings no desktop toolkit backend of its own (a
+desktop task normally adds `libreoffice-gnome` or `-kf5`); without one it
+runs on `gen`, plain X11 through Xwayland, drawing its own menu bar, which
+can't be shared and whose menus didn't open. With `libreoffice-gtk3` it is
+a Wayland GTK 3 program that exports its own menus (`GtkSalMenu`: a
+`GMenuModel` and actions, published on `gtk_surface1`), so the GTK 3 path
+above shows them with no help from `zacos9-appmenu`, and its in-window
+menu bar goes. So:
+
+- `zacos9-appstore-helper install` adds `libreoffice-gtk3` to any install
+  of a `libreoffice*` package (the Software window's own entry, or one from
+  Debian's catalog such as `libreoffice-writer`);
+- the catalog's LibreOffice entry lists both packages, so an installation
+  without the backend shows as not installed, and Install adds it.
+
+Checked headless (a private LibreOffice tree with the backend, the real
+menu bar and `GTK_MODULES=zacos9-appmenu`): Writer's File … Help in the menu
+bar, File opening with every item and its shortcut. A first start with a
+new profile exits with status 81 to restart itself; `soffice` does that,
+a test calling `soffice.bin` directly must too.
+
+## Gaps (known, not planned yet)
+
+- **GTK 4 / libadwaita** ignore themes and draw their own title bars.
+- **Electron** (VS Code, ...) draws everything itself; only its frame,
+  fonts and (under X11) its menus can be influenced.
+- **Qt 5 programs**: the style plugin is Qt 6 only (Debian 13 still has some
+  Qt 5 applications). The same source should build against Qt 5.
+- **GIMP** keeps its own dark theme until Preferences > Theme is "System";
+  the GIMP preset (`system/appstore/zacos9-appstyle`) could set that.
+- **Accent colour**: the GTK theme's lavender is fixed; the Qt style reads
+  the Appearance panel's accent at start-up only.
+
+## Testing notes
+
+- Nested session: `build/wintest/nested.sh SCRIPT` (one screen) or
+  `nested2.sh` (two), screenshots with `grim`, pointer and keys with
+  `build/shell/vptr` (use `V=build/shell/vptr` after `cd` to the repo; the
+  path has spaces).
+- Real hardware differs: a 2007 iMac's Radeon locks up under GL, so the
+  session draws with pixman on the `radeon` driver.

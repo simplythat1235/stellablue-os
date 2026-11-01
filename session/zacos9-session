@@ -1,0 +1,148 @@
+#!/bin/sh
+# zacos9-session: a ZacOS 9 desktop session. Login managers run
+# this from the "ZacOS 9" entry in /usr/share/wayland-sessions;
+# from a text console, just type zacos9-session.
+#
+# Arguments go to zacos9-wm. Its messages go to
+# ~/.local/state/zacos9/session.log (the previous session's to
+# session.log.old).
+set -u
+
+export XDG_CURRENT_DESKTOP=ZacOS9
+export XDG_SESSION_DESKTOP=zacos9
+export XDG_SESSION_TYPE=wayland
+export QT_QPA_PLATFORM="wayland;xcb"
+export GDK_BACKEND="wayland,x11"
+export MOZ_ENABLE_WAYLAND=1
+export _JAVA_AWT_WM_NONREPARENTING=1
+
+# Windows get ZacOS 9's frames, from the compositor, not the application's
+# own: GTK 3 draws its own title bar unless told otherwise, and Qt its own
+# frame if the compositor can't give it one. (GTK 4 and Electron apps that
+# draw their own title bars ignore these.)
+export GTK_CSD=0
+export QT_WAYLAND_DISABLE_WINDOWDECORATION=1
+# GTK 3 applications wear the Platinum theme (share/themes/ZacOS9), with
+# real scroll bars (arrows and all) rather than ones that appear on hover.
+export GTK_THEME=ZacOS9
+export GTK_OVERLAY_SCROLLING=0
+# Standard application file dialogs use the ZacOS file chooser portal.
+export GTK_USE_PORTAL=1
+export QT_USE_PORTAL=1
+case ":${GTK_MODULES:-}:" in
+	*:zacos9-appmenu:*) ;;
+	*) export GTK_MODULES="${GTK_MODULES:+$GTK_MODULES:}zacos9-appmenu" ;;
+esac
+export UBUNTU_MENUPROXY=1
+# Qt applications get the Platinum controls from the zacos9 style plugin
+# (shell/qtstyle); a system without it falls back to Qt's own look.
+export QT_STYLE_OVERRIDE=zacos9
+# ZacOS 9's defaults for other programs (share/xdg: Terminal's ⌘C/⌘V),
+# ahead of the system's; a user's own ~/.config files still win.
+export XDG_CONFIG_DIRS="/usr/share/zacos9/xdg:${XDG_CONFIG_DIRS:-/etc/xdg}"
+# Programs see only Mac OS 9's fonts (the Fonts folder) and the user's own.
+if [ -r /usr/share/zacos9/fontconfig/zacos9-fonts.conf ]; then
+	export FONTCONFIG_FILE=/usr/share/zacos9/fontconfig/zacos9-fonts.conf
+fi
+export XDG_DATA_DIRS="${XDG_DATA_HOME:-$HOME/.local/share}/flatpak/exports/share:/var/lib/flatpak/exports/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+if ! zacos9-desktop-places; then
+	echo "zacos9-session: Desktop save-location registration failed; see the error above." >&2
+fi
+
+# The GPU the built-in screen was moved to at start-up (zacos9-intel-graphics):
+# that one only, or the compositor would draw on the switched-off NVIDIA GPU.
+if [ -z "${WLR_DRM_DEVICES:-}" ] && [ -r /run/zacos9/drm-devices ]; then
+	read -r drm_devices </run/zacos9/drm-devices && [ -e "$drm_devices" ] && export WLR_DRM_DEVICES="$drm_devices"
+fi
+
+# No real GPU (a plain framebuffer, or a virtual machine's display, where
+# GL would be emulated on the CPU and shows stale frames): draw with
+# pixman. ZacOS 9 is light enough for it.
+# Nor on the older Radeons the radeon driver runs (HD 2000-6000, such as a
+# 2007 iMac's HD 2600): their 3D engine locks up under zacos9-wm's GL
+# drawing ("GPU lockup", "CP stalled", then a frozen screen), so they
+# only show what pixman draws. amdgpu's newer cards are unaffected.
+if [ -z "${WLR_RENDERER:-}" ]; then
+	gpu=false
+	for node in /sys/class/drm/renderD*; do
+		[ -e "$node/device/driver" ] || continue
+		case $(basename "$(readlink -f "$node/device/driver")") in
+		virtio_gpu | virtio-pci | bochs* | qxl | cirrus* | vboxvideo | vmwgfx | simpledrm | radeon) ;;
+		*) gpu=true ;;
+		esac
+	done
+	$gpu || export WLR_RENDERER=pixman
+fi
+
+# The Numbers and Text control panels' choices (~/.config/locale.conf):
+# only the locale variables, only from KEY=VALUE lines.
+locale_conf="${XDG_CONFIG_HOME:-$HOME/.config}/locale.conf"
+if [ -r "$locale_conf" ]; then
+	while IFS='=' read -r key value; do
+		case $key in
+		LANG | LC_NUMERIC | LC_MONETARY | LC_TIME | LC_MEASUREMENT | LC_PAPER | LC_COLLATE)
+			case $value in
+			*[!A-Za-z0-9_.@-]* | '') ;;
+			*) export "$key=$value" ;;
+			esac
+			;;
+		esac
+	done <"$locale_conf"
+fi
+
+# The Guest account (Users control panel) starts each login afresh: its
+# home is emptied and filled from /etc/skel. Only the account the Users
+# panel made (named in /etc/zacos9/guest-account) is ever emptied.
+guest_account=$(cat "${ZACOS9_ACCOUNTS_CONF:-/etc/zacos9}/guest-account" 2>/dev/null || true)
+if [ -n "$guest_account" ] && [ "$(id -un)" = "$guest_account" ] && [ -z "${ZACOS9_GUEST_FRESH:-}" ] &&
+		[ -d "${HOME:-}" ] && [ "$(cd "$HOME" && pwd -P)" != / ]; then
+	find "$HOME" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+	cp -a /etc/skel/. "$HOME"/ 2>/dev/null || true
+	export ZACOS9_GUEST_FRESH=1 # once, if the session starts again below
+fi
+
+# Apps want a D-Bus session bus. A systemd login has one in the runtime
+# folder; elsewhere, start one for the session.
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+	if [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/bus" ]; then
+		export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+	elif command -v dbus-run-session >/dev/null; then
+		exec dbus-run-session -- "$0" "$@"
+	fi
+fi
+
+state="${XDG_STATE_HOME:-$HOME/.local/state}/zacos9"
+mkdir -p "$state"
+[ -f "$state/session.log" ] && mv -f "$state/session.log" "$state/session.log.old"
+
+# Once the compositor is up, tell D-Bus and systemd where it is, so
+# apps they start (portals, notifications) can find the display.
+startup=
+if command -v dbus-update-activation-environment >/dev/null; then
+	startup="dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY \
+XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_CONFIG_DIRS XDG_DATA_DIRS QT_QPA_PLATFORM QT_USE_PORTAL \
+GTK_USE_PORTAL GTK_CSD GTK_THEME GTK_OVERLAY_SCROLLING GTK_MODULES UBUNTU_MENUPROXY QT_STYLE_OVERRIDE XCURSOR_THEME XCURSOR_PATH XCURSOR_SIZE \\
+LANG LC_NUMERIC LC_MONETARY LC_TIME LC_MEASUREMENT LC_PAPER LC_COLLATE"
+fi
+# The compositor runs its startup command after starting the Wayland backend,
+# setting WAYLAND_DISPLAY, and launching the desktop surfaces. Import the
+# session environment first, then process the effective FreeDesktop entries.
+if [ "${ZACOS9_SAFE_MODE:-0}" != 1 ]; then
+	startup="${startup:+$startup; }zacos9-autostart"
+fi
+# Start the file chooser now: its first scan of the Finder's applications
+# takes a few seconds, which the first Open/Save dialog shouldn't wait for.
+if command -v dbus-send >/dev/null; then
+	startup="${startup:+$startup; }{ dbus-send --session --type=method_call \
+--dest=org.freedesktop.impl.portal.desktop.zacos9 /org/freedesktop/portal/desktop \
+org.freedesktop.DBus.Peer.Ping >/dev/null 2>&1 & }"
+fi
+# Then the password prompt for programs that need an administrator
+# (polkit: balenaEtcher writing a disk, pkexec), as Mac OS asked for one.
+# ZacOS 9's own helpers don't ask (their polkit rules).
+if command -v lxqt-policykit-agent >/dev/null; then
+	startup="${startup:+$startup; }lxqt-policykit-agent"
+fi
+set -- "$@" -s "$startup"
+exec zacos9-wm "$@" >"$state/session.log" 2>&1

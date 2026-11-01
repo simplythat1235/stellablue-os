@@ -1,0 +1,298 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="platinum_shell_v1">
+  <copyright>
+    Copyright 2026 Platinum 2026 contributors. GPL-3.0-or-later.
+  </copyright>
+
+  <description summary="Platinum shell window hints">
+    Lets Platinum 2026's own programs (the Finder, control panels) tell
+    platinum-wm how to frame a window, e.g. as a movable modal dialog,
+    when the generic rule (fixed size with a parent window) can't apply.
+  </description>
+
+  <interface name="platinum_shell_v1" version="17">
+    <enum name="style">
+      <entry name="document" value="0" summary="standard document window"/>
+      <entry name="movable_modal" value="1"
+        summary="dialog: title bar without boxes, no resize box"/>
+      <entry name="popup" value="2" since="14"
+        summary="pop-up window: a tab at the bottom of the screen"/>
+    </enum>
+
+    <request name="set_window_style">
+      <description summary="choose the frame for a toplevel's surface">
+        Applies to the xdg_toplevel (or X11 window) whose surface this is,
+        now or once it maps. Lasts until the surface is destroyed.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+      <arg name="style" type="uint" enum="style"/>
+    </request>
+
+    <request name="set_window_position">
+      <description summary="where a window should appear">
+        Spatial programs (the Finder) reopen windows where the user left
+        them. Applies when the toplevel maps; x and y are the frame's
+        top-left in layout coordinates, kept on screen by the compositor.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+    </request>
+
+    <event name="window_position">
+      <description summary="a window now sits here">
+        Sent to the surface's own client when its toplevel maps and
+        whenever it is moved or resized, with the frame's top-left in
+        layout coordinates.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+    </event>
+
+    <request name="destroy" type="destructor"/>
+
+    <event name="active_client" since="2">
+      <description summary="the front window's process">
+        Sent on bind and whenever the window with keyboard focus changes,
+        with the process id of the program that owns it (an X11 window's own
+        process, not Xwayland's), or 0 when no window is in front. The menu
+        bar uses it to show that program's own menus (global menus).
+      </description>
+      <arg name="pid" type="uint"/>
+    </event>
+
+    <request name="begin_launch" since="3">
+      <description summary="show launch feedback until the application is ready">
+        Cookie identifies a launch on this binding. The compositor ends feedback
+        when a matching application maps or activates a window, or after 15
+        seconds. PID may be zero for D-Bus activation; app_id is the desktop
+        entry ID, or empty when unknown. At most 32 launches may be pending.
+      </description>
+      <arg name="cookie" type="uint"/>
+      <arg name="pid" type="uint"/>
+      <arg name="app_id" type="string"/>
+    </request>
+    <request name="update_launch" since="3">
+      <description summary="supply the PID after spawning the application">
+        Updates an existing launch. Completed or cancelled cookies are ignored.
+      </description>
+      <arg name="cookie" type="uint"/>
+      <arg name="pid" type="uint"/>
+    </request>
+    <request name="cancel_launch" since="3">
+      <description summary="cancel feedback when launching failed">
+        Unknown or already completed cookies are ignored.
+      </description>
+      <arg name="cookie" type="uint"/>
+    </request>
+    <event name="active_gtk_menu" since="4">
+      <description summary="GTK menu exports of the focused surface">
+        Sent on bind, focus changes and menu-property changes. Empty strings
+        clear the current GTK menu. Window paths distinguish windows owned
+        by the same process. The bus name is the client's unique D-Bus name.
+      </description>
+      <arg name="bus_name" type="string"/>
+      <arg name="app_menu_path" type="string"/>
+      <arg name="menubar_path" type="string"/>
+      <arg name="window_path" type="string"/>
+      <arg name="application_path" type="string"/>
+    </event>
+
+    <enum name="keep_awake_what" bitfield="true" since="5">
+      <entry name="screens" value="1" summary="the screens showing the app"/>
+      <entry name="system" value="2" summary="the system: no system sleep"/>
+    </enum>
+    <request name="keep_awake" since="5">
+      <description summary="an app asked to stay awake">
+        For ZacOS 9's D-Bus idle service (org.freedesktop.ScreenSaver, the
+        portal's Inhibit): an app asked that the screen, or the system,
+        stay awake. The screens showing that app's windows (found by its
+        process, or a parent of it, or by app id) stay awake while the
+        others may sleep; when no window of it is found, every screen
+        stays awake. The system doesn't sleep while any request exists.
+        Destroying the object ends the request, as does disconnecting.
+      </description>
+      <arg name="id" type="new_id" interface="platinum_keep_awake_v1"/>
+      <arg name="pid" type="uint" summary="the asking process, 0 if unknown"/>
+      <arg name="app_id" type="string" summary="its app id, empty if unknown"/>
+      <arg name="what" type="uint" enum="keep_awake_what"/>
+    </request>
+    <request name="user_activity" since="5">
+      <description summary="as if there had been input">
+        Wakes every screen and restarts the idle timers
+        (org.freedesktop.ScreenSaver's SimulateUserActivity).
+      </description>
+    </request>
+    <request name="lock" since="6">
+      <description summary="lock the screens">
+        For ZacOS 9's D-Bus idle service: logind asked the session to lock
+        (always set), or the system is about to sleep (always unset: lock
+        only if "Ask for my password to wake" is on), or an app asked
+        org.freedesktop.ScreenSaver to Lock (always set). The callback is
+        done once the screens are locked, or at once if they are already,
+        or aren't to be.
+      </description>
+      <arg name="callback" type="new_id" interface="wl_callback"/>
+      <arg name="always" type="uint" summary="1 to lock even without a password asked"/>
+    </request>
+    <request name="force_quit" since="7">
+      <description summary="end an application that won't quit">
+        For the Apple menu's Force Quit, once the user has confirmed it: every
+        process owning a window with this app id is killed (SIGKILL), as
+        Mac OS's Force Quit did. Unsaved work in it is lost.
+      </description>
+      <arg name="app_id" type="string"/>
+    </request>
+    <event name="switch_app" since="8">
+      <description summary="⌘-Tab: switch programs">
+        Sent to the menu bar when ⌘-Tab (step 1) or ⇧⌘-Tab (step -1) is
+        pressed. The menu bar knows the programs' names, so it picks the
+        next one, alphabetically as Mac OS 9 did, and answers with
+        activate_app.
+      </description>
+      <arg name="step" type="int"/>
+    </event>
+    <request name="activate_app" since="8">
+      <description summary="bring a program to the front">
+        Every window of this app id comes forward, in its own order, and
+        out of hiding; its front window becomes active. For the Finder with
+        no windows, as a click on the desktop does: no window is active.
+      </description>
+      <arg name="app_id" type="string"/>
+    </request>
+    <request name="set_standard_size" since="9">
+      <description summary="the size the zoom box gives the window">
+        The window's "standard state", as Mac OS called it: the content size
+        (logical pixels, without the frame) that the zoom box makes it, such
+        as a Finder window just big enough for its icons. Kept on screen.
+        Option-clicking the zoom box fills the screen instead. 0 x 0 forgets
+        it: the zoom box fills the screen.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+      <arg name="width" type="uint"/>
+      <arg name="height" type="uint"/>
+    </request>
+    <request name="enable_title_menu" since="10">
+      <description summary="⌘-click on the title is the program's">
+        A ⌘-click (or Option-⌘-click) on this window's title text no longer
+        moves the window: the program is sent title_menu instead, as the
+        Finder shows the folder's path there.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+    <event name="title_menu" since="10">
+      <description summary="⌘-click on the title">
+        The button is still down: a menu shown now can track it. `option`
+        is 1 for Option-⌘-click.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+      <arg name="option" type="uint"/>
+    </event>
+    <event name="keyboard_layouts" since="11">
+      <description summary="the keyboard layouts and the one in use">
+        Sent on bind and whenever they change (the Keyboard panel, ⌘-Space):
+        one line per layout, "code TAB name" (code as in the Keyboard
+        panel's setting, such as "us(dvorak)"; empty if unknown), and the
+        index of the one in use. The menu bar's keyboard menu shows them.
+      </description>
+      <arg name="layouts" type="string"/>
+      <arg name="current" type="uint"/>
+    </event>
+    <request name="set_keyboard_layout" since="11">
+      <description summary="use another keyboard layout">
+        The index of one of the layouts in keyboard_layouts.
+      </description>
+      <arg name="index" type="uint"/>
+    </request>
+    <request name="set_proxy_icon" since="12">
+      <description summary="a proxy icon before the window's title">
+        Mac OS 9's Finder windows: the folder's small icon before its name
+        in the title bar. `icon` is a pl_icon_kind + 1 (lib/icons.h); 0
+        takes it away. Dragging it sends proxy_drag.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+      <arg name="icon" type="uint"/>
+    </request>
+    <event name="proxy_drag" since="12">
+      <description summary="the proxy icon is being dragged">
+        The pointer was pressed on the window's proxy icon and moved. The
+        press has been handed to the window (just above its content, the
+        button still down, so its serial starts a drag): the program starts
+        a drag of what the window shows, as from one of its own icons.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </event>
+    <event name="sticky_keys" since="13">
+      <description summary="the modifiers Sticky Keys holds">
+        Sent on bind and whenever they change. `on` is 1 while Sticky Keys
+        is on; `latched` (for the next key) and `locked` (until pressed
+        again) are bits: 1 Shift, 2 Control, 4 Option, 8 Command. The menu
+        bar shows them at its right end.
+      </description>
+      <arg name="on" type="uint"/>
+      <arg name="latched" type="uint"/>
+      <arg name="locked" type="uint"/>
+    </event>
+    <request name="set_popup_tab" since="14">
+      <description summary="where a pop-up window's tab goes">
+        For a surface of style popup: the left edge of its tab along the
+        bottom of the screen, in layout coordinates, as remembered from
+        popup_tab. Negative: the first free place. The window is docked
+        there, closed; bringing it forward (activation) opens it, and
+        bringing any other window forward closes it again.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+      <arg name="x" type="int"/>
+    </request>
+    <event name="popup_tab" since="14">
+      <description summary="the user moved a pop-up window's tab">
+        Its new left edge, in layout coordinates, to give back to
+        set_popup_tab next time.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+      <arg name="x" type="int"/>
+    </event>
+    <event name="popup_detach" since="14">
+      <description summary="a pop-up window was dragged into a window">
+        Its tab was dragged up off the bottom of the screen: the window is
+        an ordinary document window now (as if set_window_style had made
+        it one), being moved by the user. window_position follows.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </event>
+    <event name="drag_spring" since="15">
+      <description summary="Space was pressed during a drag">
+        Sent to the program whose surface a drag is over when the user
+        presses Space: open the spring-loaded folder under the pointer
+        now, without waiting for the delay. Keys don't otherwise reach
+        programs during a drag; the Space press itself is not delivered.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </event>
+    <request name="close_app_window" since="16">
+      <description summary="close the front window of an application">
+        Ask the frontmost mapped window with this app id to close, without
+        quitting its application. Used by the Sniffer's Option-double-click.
+      </description>
+      <arg name="app_id" type="string"/>
+    </request>
+    <request name="text_field" since="17">
+      <description summary="whether a text field has this program's focus">
+        Sent by Platinum's own programs whenever their focus moves:
+        whether what has it now takes typing (a text field). The
+        on-screen keyboard follows it for this client's windows, over
+        text-input-v3, which Qt disables only when the focus leaves a
+        window, not when it moves from a field to a button within one.
+      </description>
+      <arg name="focused" type="uint"/>
+    </request>
+  </interface>
+
+  <interface name="platinum_keep_awake_v1" version="1">
+    <description summary="a request to stay awake">
+      Made by platinum_shell_v1.keep_awake; lasts until destroyed.
+    </description>
+    <request name="destroy" type="destructor"/>
+  </interface>
+</protocol>

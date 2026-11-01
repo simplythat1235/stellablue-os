@@ -1,0 +1,286 @@
+/*
+ * Pixel tests: render Platinum frames with decor.c and compare them against
+ * the Mac OS 8 HIG figures (fetched by tools/measure/fetch.sh; not in git).
+ * Only frame pixels are compared. Client content and the title text are
+ * excluded (the text font is still a stand-in).
+ *
+ * usage: test-decor FIGS_DIR     exit 77 (skip) if figures are missing
+ */
+#include <cairo.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "decor.h"
+#include "icons.h"
+
+struct rect {
+	int x, y, w, h; /* frame-local */
+};
+
+struct fixture {
+	const char *name;
+	const char *figure;
+	int fig_x, fig_y; /* frame origin within the figure */
+	struct decor_state st;
+	struct rect regions[8];
+};
+
+/* Measured in docs/reference/zacos9-window.md. */
+static const struct fixture fixtures[] = {
+	{
+		.name = "collapsed active (fig 5-6)",
+		.figure = "img-104-134.png", .fig_x = 0, .fig_y = 0,
+		.st = { .width = 231, .height = 22, .active = true, .collapsed = true,
+			.has_close = true, .has_zoom = true, .has_collapse = true },
+		.regions = {
+			{ 0, 0, 21, 23 },        /* left end: border, close box */
+			{ 194, 0, 38, 23 },      /* right end: zoom, collapse, shadow */
+			{ 0, 17, 232, 6 },       /* bottom bevel + shadow, full width */
+			{ 0, 0, 232, 4 },        /* top bevel, full width */
+		},
+	},
+	{
+		.name = "active document window (fig 5-1)",
+		.figure = "img-100-128.png", .fig_x = 3, .fig_y = 2,
+		.st = { .width = 214, .height = 227, .active = true,
+			.has_close = true, .has_zoom = true, .has_collapse = true,
+			.has_grow = true },
+		.regions = {
+			{ 0, 0, 21, 26 },        /* top-left: close box, well corner */
+			{ 176, 0, 39, 22 },      /* top-right: zoom, collapse, shadow */
+			{ 0, 0, 215, 4 },        /* top bevel */
+			{ 0, 30, 6, 150 },       /* left side */
+			{ 208, 30, 7, 150 },     /* right side + shadow */
+			{ 0, 221, 193, 6 },      /* bottom */
+			/* Shadow row. Fig 5-1 has #777/#888 at (0..1, H) where fig 5-6
+			 * and the top-right corner show background: an artifact. */
+			{ 2, 227, 191, 1 },
+			{ 193, 206, 22, 22 },    /* resize box + corner + shadow */
+		},
+	},
+	{
+		.name = "movable modal dialog (fig 3-2)",
+		.figure = "img-059-088.png", .fig_x = 0, .fig_y = 0,
+		.st = { .style = DECOR_STYLE_MOVABLE_MODAL, .width = 301, .height = 200,
+			.active = true },
+		.regions = {
+			{ 0, 0, 302, 4 },        /* top border and highlight */
+			{ 0, 17, 302, 7 },       /* bottom of title bar, body top bevel */
+			{ 0, 0, 40, 24 },        /* title bar left end (stripes) */
+			{ 262, 0, 40, 24 },      /* title bar right end + shadow */
+			{ 0, 24, 3, 177 },       /* left bevel + shadow corner */
+			{ 298, 24, 4, 177 },     /* right bevel + shadow */
+			{ 0, 197, 302, 4 },      /* bottom bevel + shadow */
+		},
+	},
+	{
+		.name = "inactive document window (fig 5-1)",
+		.figure = "img-100-128.png", .fig_x = 218, .fig_y = 3,
+		.st = { .width = 214, .height = 225, .active = false,
+			.has_close = true, .has_zoom = true, .has_collapse = true,
+			.has_grow = true },
+		.regions = {
+			{ 0, 0, 30, 25 },        /* top-left (no boxes when inactive) */
+			{ 180, 0, 35, 22 },      /* top-right + shadow start */
+			{ 0, 30, 6, 150 },       /* left side */
+			{ 208, 30, 7, 150 },     /* right side + shadow */
+			{ 0, 219, 193, 7 },      /* bottom + shadow */
+			{ 193, 204, 22, 22 },    /* blank resize cell + corner */
+		},
+	},
+};
+
+static uint32_t fig_pixel(cairo_surface_t *s, int x, int y) {
+	const uint8_t *row = cairo_image_surface_get_data(s) +
+		y * cairo_image_surface_get_stride(s);
+	return ((const uint32_t *)row)[x] & 0xFFFFFFu;
+}
+
+static int run_fixture(const struct fixture *f, const char *dir) {
+	char path[1024];
+	snprintf(path, sizeof(path), "%s/%s", dir, f->figure);
+	cairo_surface_t *fig = cairo_image_surface_create_from_png(path);
+	if (cairo_surface_status(fig) != CAIRO_STATUS_SUCCESS) {
+		cairo_surface_destroy(fig);
+		return -1;
+	}
+	cairo_surface_flush(fig);
+
+	const int W = f->st.width + DECOR_SHADOW;
+	const int H = (f->st.collapsed ? DECOR_COLLAPSED_H : f->st.height) + DECOR_SHADOW;
+	uint32_t *px = calloc((size_t)W * H, sizeof(*px));
+	struct pl_canvas canvas = {
+		.px = px, .stride = W, .x = 0, .y = 0, .width = W, .height = H,
+	};
+	decor_paint(&canvas, &f->st);
+
+	int failures = 0;
+	for (int r = 0; r < 8 && f->regions[r].w; r++) {
+		const struct rect *rc = &f->regions[r];
+		for (int y = rc->y; y < rc->y + rc->h; y++) {
+			for (int x = rc->x; x < rc->x + rc->w; x++) {
+				/* Transparent pixels (client area, around the shadow) show
+				 * the figure's white background. */
+				uint32_t ours = x < W && y < H ? px[y * W + x] : 0;
+				ours = ours >> 24 ? ours & 0xFFFFFFu : 0xFFFFFFu;
+				uint32_t want = fig_pixel(fig, f->fig_x + x, f->fig_y + y);
+				if (ours != want) {
+					if (failures < 10) {
+						fprintf(stderr, "  %s: (%d,%d) got #%06x want #%06x\n",
+							f->name, x, y, ours, want);
+					}
+					failures++;
+				}
+			}
+		}
+	}
+	free(px);
+	cairo_surface_destroy(fig);
+	printf("%s %s (%d mismatched pixels)\n", failures ? "FAIL" : "ok  ",
+		f->name, failures);
+	return failures;
+}
+
+static int check_hit(const struct decor_state *st, int x, int y,
+		enum decor_part want, const char *what) {
+	enum decor_part got = decor_hit(st, x, y);
+	if (got != want) {
+		fprintf(stderr, "FAIL hit %s at (%d,%d): got %d want %d\n",
+			what, x, y, got, want);
+		return 1;
+	}
+	return 0;
+}
+
+/* A proxy icon before the title: centred with it, hit apart from it,
+ * drawn, and the title's room shrinks by it. */
+static int run_proxy_tests(void) {
+	struct decor_state st = { .width = 214, .height = 227, .active = true,
+		.has_close = true, .has_zoom = true, .has_collapse = true, .has_grow = true };
+	const int room = decor_title_max_width(&st);
+	st.proxy = PL_ICON_FOLDER + 1;
+	int fails = 0;
+	if (decor_title_max_width(&st) != room - 20) {
+		printf("FAIL proxy: the title's room is %d, not %d\n", decor_title_max_width(&st), room - 20);
+		fails++;
+	}
+	struct plat_text *t = text_render("Projects", decor_title_max_width(&st));
+	st.title = t;
+	const int ink_w = t->ink_r - t->ink_l + 1;
+	const int icon_x = (214 - 1) / 2 - (ink_w + 20 - 1) / 2, ink_l = icon_x + 20;
+	if (!decor_proxy_hit(&st, icon_x + 8, 10) || decor_proxy_hit(&st, icon_x - 6, 10) ||
+			decor_proxy_hit(&st, ink_l + 4, 10)) {
+		printf("FAIL proxy: hit testing around x %d\n", icon_x);
+		fails++;
+	}
+	if (!decor_title_hit(&st, ink_l + ink_w / 2, 10) || decor_title_hit(&st, icon_x + 4, 10)) {
+		printf("FAIL proxy: the title text moved right of the icon\n");
+		fails++;
+	}
+	uint32_t *px = calloc(214 * 22, sizeof(*px));
+	struct pl_canvas c = { .px = px, .stride = 214, .x = 0, .y = 0, .width = 214, .height = 22 };
+	decor_paint(&c, &st);
+	int lavender = 0;
+	for (int y = 3; y < 19; y++) {
+		for (int x = icon_x; x < icon_x + 16; x++) {
+			lavender += px[y * 214 + x] == 0xFFCCCCFFu;
+		}
+	}
+	if (lavender < 10) {
+		printf("FAIL proxy: no folder drawn before the title\n");
+		fails++;
+	}
+	struct decor_state modal = st;
+	modal.style = DECOR_STYLE_MOVABLE_MODAL;
+	if (decor_proxy_hit(&modal, icon_x + 8, 10)) {
+		printf("FAIL proxy: dialogs have none\n");
+		fails++;
+	}
+	free(px);
+	text_destroy(t);
+	printf("%s proxy icon\n", fails ? "FAIL" : "ok  ");
+	return fails;
+}
+
+static int run_hit_tests(void) {
+	struct decor_state st = { .width = 214, .height = 227, .active = true,
+		.has_close = true, .has_zoom = true, .has_collapse = true,
+		.has_grow = true };
+	int fails = 0;
+	fails += check_hit(&st, 10, 10, DECOR_PART_CLOSE, "close");
+	fails += check_hit(&st, 214 - 30, 8, DECOR_PART_ZOOM, "zoom");
+	fails += check_hit(&st, 214 - 12, 8, DECOR_PART_COLLAPSE, "collapse");
+	fails += check_hit(&st, 100, 10, DECOR_PART_DRAG, "title");
+	fails += check_hit(&st, 2, 100, DECOR_PART_DRAG, "left frame");
+	fails += check_hit(&st, 100, 100, DECOR_PART_CLIENT, "client");
+	fails += check_hit(&st, 214 - 10, 227 - 10, DECOR_PART_GROW, "grow");
+	fails += check_hit(&st, 214, 100, DECOR_PART_NONE, "shadow");
+	st.active = false;
+	fails += check_hit(&st, 10, 10, DECOR_PART_DRAG, "inactive close");
+	st.active = true;
+	st.collapsed = true;
+	fails += check_hit(&st, 100, 30, DECOR_PART_NONE, "below collapsed");
+	printf("%s hit testing\n", fails ? "FAIL" : "ok  ");
+	return fails + run_proxy_tests();
+}
+
+/* A pop-up window: only its tab takes clicks above the body, nothing but
+ * the tab when closed, and the body's top corners resize it. */
+static int run_popup_tests(void) {
+	int fails = 0;
+	struct decor_state st = {
+		.style = DECOR_STYLE_POPUP, .width = 300, .height = 200, .active = true, .tab_x = 100,
+	};
+	const int tab_w = decor_tab_width(&st);
+	fails += check_hit(&st, 100, 5, DECOR_PART_TAB, "popup tab left edge");
+	fails += check_hit(&st, 100 + tab_w - 1, 5, DECOR_PART_TAB, "popup tab right edge");
+	fails += check_hit(&st, 99, 5, DECOR_PART_NONE, "popup beside the tab");
+	fails += check_hit(&st, 100 + tab_w, 5, DECOR_PART_NONE, "popup after the tab");
+	fails += check_hit(&st, 150, 100, DECOR_PART_CLIENT, "popup body");
+	fails += check_hit(&st, 2, DECOR_TAB_H + 2, DECOR_PART_GROW_TOP_LEFT, "popup top-left corner");
+	fails += check_hit(&st, 297, DECOR_TAB_H + 2, DECOR_PART_GROW_TOP_RIGHT, "popup top-right corner");
+	fails += check_hit(&st, 150, DECOR_TAB_H + 2, DECOR_PART_BORDER, "popup top edge");
+	fails += check_hit(&st, 2, 150, DECOR_PART_BORDER, "popup side edge");
+	if (decor_frame_height(&st) != 200 || tab_w < 64) {
+		printf("FAIL popup open height %d, tab %d\n", decor_frame_height(&st), tab_w);
+		fails++;
+	}
+	uint32_t px[300 * 200] = { 0 };
+	struct pl_canvas c = { .px = px, .stride = 300, .width = 300, .height = 200 };
+	decor_paint(&c, &st);
+	if (px[102] != C_BLACK || px[50] != 0 || px[0 + 300 * DECOR_TAB_H] != C_BLACK) {
+		printf("FAIL popup paint: tab top %08x, beside %08x, body corner %08x\n",
+			px[102], px[50], px[300 * DECOR_TAB_H]);
+		fails++;
+	}
+	st.collapsed = true;
+	fails += check_hit(&st, 120, 5, DECOR_PART_TAB, "closed popup tab");
+	fails += check_hit(&st, 150, 100, DECOR_PART_NONE, "closed popup body is gone");
+	fails += check_hit(&st, 150, DECOR_TAB_H, DECOR_PART_NONE, "closed popup below the tab");
+	if (decor_frame_height(&st) != DECOR_TAB_H) {
+		printf("FAIL closed popup height %d\n", decor_frame_height(&st));
+		fails++;
+	}
+	printf("%s popup windows\n", fails ? "FAIL" : "ok  ");
+	return fails;
+}
+
+int main(int argc, char *argv[]) {
+	int fails = run_hit_tests() + run_popup_tests();
+	const char *dir = argc > 1 ? argv[1] : "tools/measure/figs";
+	bool ran = false;
+	for (size_t i = 0; i < sizeof(fixtures) / sizeof(fixtures[0]); i++) {
+		int r = run_fixture(&fixtures[i], dir);
+		if (r < 0) {
+			printf("skip %s (run tools/measure/fetch.sh)\n", fixtures[i].name);
+			continue;
+		}
+		ran = true;
+		fails += r;
+	}
+	if (fails) {
+		return 1;
+	}
+	return ran ? 0 : 77;
+}

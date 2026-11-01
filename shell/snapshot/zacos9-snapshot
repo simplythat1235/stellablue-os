@@ -1,0 +1,43 @@
+#!/bin/sh
+# zacos9-snapshot: Screen Snapshot, from the Apple menu. Drag a rectangle
+# (Escape or a right click cancels); the picture is saved on the Desktop as
+# "Picture 1.png", "Picture 2.png", ... (as Mac OS 9 named its own) and is
+# put on the clipboard too, ready to paste.
+#
+# Uses native committed-frame capture, not wlroots screencopy.
+set -u
+
+capture=$(dirname "$(readlink -f "$0")")/zacos9-capture
+if [ ! -x "$capture" ]; then
+	echo "zacos9-snapshot: the native capture helper is missing; reinstall ZacOS." >&2
+	exit 1
+fi
+for tool in slurp wl-copy; do
+	command -v "$tool" >/dev/null || {
+		echo "zacos9-snapshot: $tool isn't installed." >&2
+		exit 1
+	}
+done
+
+geometry=$(slurp -d -w 1 -c '#000000ff' -b '#00000030' -s '#00000000' -F "DejaVu Sans")
+status=$?
+case $status in
+	0) [ -n "$geometry" ] || exit 0 ;;
+	1) exit 0 ;; # slurp uses status 1 for a cancelled selection.
+	*) echo "zacos9-snapshot: region selection failed ($status)." >&2; exit "$status" ;;
+esac
+desktop=$(xdg-user-dir DESKTOP 2>/dev/null)
+[ -n "$desktop" ] && [ "$desktop" != "$HOME" ] || desktop=$HOME/Desktop
+mkdir -p "$desktop" || exit 1
+n=1
+while [ -e "$desktop/Picture $n.png" ]; do
+	n=$((n + 1))
+done
+file="$desktop/Picture $n.png"
+
+sleep 0.2
+"$capture" --geometry "$geometry" "$file" || exit 1
+if ! wl-copy --type image/png <"$file"; then
+	echo "zacos9-snapshot: the picture was saved, but clipboard copying failed: $file" >&2
+	exit 1
+fi

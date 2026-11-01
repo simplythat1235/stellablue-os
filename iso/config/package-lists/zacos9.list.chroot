@@ -1,0 +1,67 @@
+# ZacOS 9 (built by scripts/build-debs.sh, in config/packages.chroot)
+zacos9
+zacos9-emulators
+
+# Login: greetd with a text greeter; live sessions log straight in
+greetd
+tuigreet
+
+# Session
+dbus-user-session
+xwayland
+qt6-wayland
+foot
+libgl1-mesa-dri
+pipewire-audio
+wireplumber
+pulseaudio-utils
+
+# System
+sudo
+user-setup
+locales
+console-setup
+keyboard-configuration
+network-manager
+upower
+gnupg
+# External-monitor brightness for The Collar (DDC/CI); loads i2c-dev itself
+ddcutil
+
+# Broadcom Wi-Fi (MacBooks from about 2008 to 2015, many Dell and HP
+# laptops): the wl driver, built for the image's kernel
+linux-headers-amd64
+broadcom-sta-dkms
+
+# File sharing: Macs (AFP), Windows (SMB, and shown in Windows' Network)
+netatalk
+samba
+wsdd2
+avahi-daemon
+pkexec
+
+# Printing: CUPS finds IPP Everywhere printers on the network by itself
+# (no cups-browsed on the live system), ipp-usb serves
+# USB printers the same way, system-config-printer is the Picker's
+# Settings… button.
+cups
+ipp-usb
+system-config-printer
+
+# The boot splash
+plymouth
+
+# The installer's boot loader (zacos9-install): GRUB for both UEFI and
+# BIOS computers. The -bin packages hold the boot images without
+# claiming the live system's own boot, so both kinds can be installed.
+# The signed GRUB and shim let an installed system start with Secure Boot on.
+grub2-common
+grub-efi-amd64-bin
+grub-efi-amd64-signed
+shim-signed
+grub-pc-bin
+efibootmgr
+
+# AppImages (installed by dropping them onto Applications) mount
+# themselves through FUSE 2.
+libfuse2t64

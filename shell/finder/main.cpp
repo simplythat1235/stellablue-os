@@ -1,0 +1,102 @@
+/*
+ * zacos9-finder: the Finder. Owns the desktop (a layer-shell surface)
+ * and the spatial folder windows. Like the Mac's, it never quits.
+ */
+#include <QApplication>
+#include <QCoreApplication>
+#include <QScreen>
+#include <QTimer>
+#include <cstdio>
+
+#include "alert.h"
+#include "appdb.h"
+#include "desktop.h"
+#include "diskinit.h"
+#include "filemanager1.h"
+#include "finder.h"
+#include "platinumshell.h"
+#include "secondarydesktop.h"
+#include "settings.h"
+#include "toybox.h"
+
+#include <cstring>
+
+int main(int argc, char *argv[]) {
+	/* zacos9-finder --open URI...: a folder opened from another program
+	 * (xdg-open, zacos9-finder.desktop). The running Finder shows it. */
+	if (argc >= 2 && QByteArray(argv[1]) == "--open") {
+		QCoreApplication app(argc, argv);
+		const QStringList uris = app.arguments().mid(2);
+		if (fileManager1ShowFolders(uris)) {
+			return 0;
+		}
+		fprintf(stderr, "zacos9-finder: Sniffer isn't running to open %s\n",
+			qPrintable(uris.join(' ')));
+		return 1;
+	}
+
+	/* zacos9-wm draws every frame; Qt must not add its own. */
+	qputenv("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1");
+
+	QApplication app(argc, argv);
+	QApplication::setApplicationName("Sniffer");
+	QGuiApplication::setDesktopFileName("zacos9-finder"); /* Wayland app_id */
+	QApplication::setDoubleClickInterval(pl_double_click_ms()); /* the Mouse panel's */
+	QApplication::setQuitOnLastWindowClosed(false);
+	platinumShellInit();
+	diskInitializationStart([] { Finder::instance().notifyState(); });
+	/* A Limited account opening a program it may not use. */
+	appOnRefused([](const QString &name) {
+		const QString message = QStringLiteral(
+			"You don't have permission to use \"%1\". "
+			"Ask the computer's administrator to add it to your programs.").arg(name);
+		auto *alert = new Alert(message, "OK", QString());
+		alert->setAttribute(Qt::WA_DeleteOnClose);
+		alert->setAccessibleDescription(message);
+		alert->open();
+	});
+
+	QScreen *screen = QGuiApplication::primaryScreen();
+	const auto makeDesktop = [screen] {
+		auto *d = new Desktop;
+		d->resize(screen->size());
+		d->becomeLayerSurface();
+		d->show();
+		return d;
+	};
+	Desktop *desktop = makeDesktop();
+	Finder::instance().start(desktop);
+	/* If the screen goes away and comes back, the desktop's layer-surface
+	 * role is lost; re-apply it so the icons and background return. */
+	QObject::connect(qApp, &QGuiApplication::screenAdded, desktop, [desktop] {
+		desktop->becomeLayerSurface();
+		desktop->show();
+		desktop->update();
+	});
+	QObject::connect(qApp, &QGuiApplication::screenRemoved, desktop, [desktop] {
+		desktop->becomeLayerSurface();
+		desktop->update();
+	});
+	/* General Controls' "Show Toy Box at system startup". */
+	char toyBox[16];
+	if (pl_setting("toy-box-at-startup", toyBox, sizeof(toyBox)) && strcmp(toyBox, "true") == 0) {
+		ToyBox::open();
+	}
+	/* Other programs' "Show in Folder" (Firefox's downloads, ...). */
+	fileManager1Start();
+	/* More than one screen: the pattern on the others. */
+	SecondaryDesktop::keepInStep();
+	/* The Monitors panel can change the screen's size or scale. Qt keeps
+	 * a widget's backing store at the scale it started with, so the
+	 * desktop is replaced by a fresh one drawn at the new scale. */
+	QObject::connect(screen, &QScreen::geometryChanged, &app, [&desktop, makeDesktop] {
+		QTimer::singleShot(0, [&desktop, makeDesktop] {
+			Desktop *old = desktop;
+			desktop = makeDesktop();
+			Finder::instance().replaceDesktop(desktop);
+			old->hide();
+			old->deleteLater();
+		});
+	});
+	return app.exec();
+}

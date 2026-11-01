@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Mouse
+Comment=Mouse tracking and double-click speed
+Exec=zacos9-controlpanel mouse
+Categories=Settings;HardwareSettings;X-ZacOS9-ControlPanel;
+OnlyShowIn=ZacOS9;

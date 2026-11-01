@@ -1,0 +1,523 @@
+/*
+ * platinum-shell-v1: window hints from Platinum's own programs (frame
+ * style, remembered position) and window-position reports back to them.
+ */
+#include <signal.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <wlr/types/wlr_compositor.h>
+#include <wlr/types/wlr_data_device.h>
+#include <wlr/util/log.h>
+#include <wlr/xwayland.h>
+
+#include "platinum-shell-v1-protocol.h"
+#include "launch.h"
+#include "frame.h"
+#include "access.h"
+#include "server.h"
+
+struct surface_hint {
+	struct wl_list link;
+	struct wlr_surface *surface;
+	int style;           /* enum decor_style, or -1 */
+	bool has_position;
+	int x, y;
+	bool reported;       /* last reported position, to avoid repeats */
+	int standard_w, standard_h; /* the zoom box's content size; 0: none */
+	bool title_menu;     /* ⌘-click on the title is the program's */
+	int proxy;           /* the proxy icon (pl_icon_kind + 1), or 0 */
+	bool has_tab;        /* a pop-up's remembered tab */
+	int tab_x;
+	int rx, ry;
+	struct wl_listener surface_destroy;
+};
+
+static struct wl_list hints;     /* surface_hint.link */
+static struct wl_list resources; /* bound platinum_shell_v1 resources */
+static struct plat_server *the_server;
+
+static struct surface_hint *find_hint(struct wlr_surface *surface) {
+	struct surface_hint *h;
+	wl_list_for_each(h, &hints, link) {
+		if (h->surface == surface) {
+			return h;
+		}
+	}
+	return NULL;
+}
+
+static void hint_surface_destroy(struct wl_listener *listener, void *data) {
+	struct surface_hint *h = wl_container_of(listener, h, surface_destroy);
+	wl_list_remove(&h->surface_destroy.link);
+	wl_list_remove(&h->link);
+	free(h);
+}
+
+static struct surface_hint *get_hint(struct wlr_surface *surface) {
+	struct surface_hint *h = find_hint(surface);
+	if (!h) {
+		h = calloc(1, sizeof(*h));
+		h->surface = surface;
+		h->style = -1;
+		h->surface_destroy.notify = hint_surface_destroy;
+		wl_signal_add(&surface->events.destroy, &h->surface_destroy);
+		wl_list_insert(&hints, &h->link);
+	}
+	return h;
+}
+
+int platinum_shell_style_for(struct wlr_surface *surface) {
+	struct surface_hint *h = find_hint(surface);
+	return h ? h->style : -1;
+}
+
+bool platinum_shell_popup_tab_for(struct wlr_surface *surface, int *x) {
+	struct surface_hint *h = surface ? find_hint(surface) : NULL;
+	if (!h || !h->has_tab) {
+		return false;
+	}
+	*x = h->tab_x;
+	return true;
+}
+
+bool platinum_shell_position_for(struct wlr_surface *surface, int *x, int *y) {
+	struct surface_hint *h = find_hint(surface);
+	if (!h || !h->has_position) {
+		return false;
+	}
+	*x = h->x;
+	*y = h->y;
+	return true;
+}
+
+bool platinum_shell_standard_size_for(struct wlr_surface *surface, int *w, int *h) {
+	struct surface_hint *h_ = find_hint(surface);
+	if (!h_ || h_->standard_w <= 0 || h_->standard_h <= 0) {
+		return false;
+	}
+	*w = h_->standard_w;
+	*h = h_->standard_h;
+	return true;
+}
+
+/* The platinum_shell_v1 the surface's own program bound, if any. */
+static struct wl_resource *shell_of(struct wlr_surface *surface) {
+	struct wl_client *client = wl_resource_get_client(surface->resource);
+	struct wl_resource *shell = NULL, *r;
+	wl_resource_for_each(r, &resources) {
+		if (wl_resource_get_client(r) == client) {
+			shell = r;
+		}
+	}
+	return shell;
+}
+
+int platinum_shell_proxy_for(struct wlr_surface *surface) {
+	struct surface_hint *h = surface ? find_hint(surface) : NULL;
+	return h ? h->proxy : 0;
+}
+
+bool platinum_shell_proxy_drag(struct plat_view *view) {
+	struct wlr_surface *surface = view->impl->get_surface(view);
+	struct surface_hint *h = surface ? find_hint(surface) : NULL;
+	struct wl_resource *shell = h && h->proxy && surface->resource ? shell_of(surface) : NULL;
+	if (!shell || wl_resource_get_version(shell) < PLATINUM_SHELL_V1_PROXY_DRAG_SINCE_VERSION) {
+		return false;
+	}
+	platinum_shell_v1_send_proxy_drag(shell, surface->resource);
+	return true;
+}
+
+bool platinum_shell_drag_spring(struct wlr_drag *drag) {
+	struct wlr_surface *surface = drag ? drag->focus : NULL;
+	struct wl_resource *shell = surface && surface->resource ? shell_of(surface) : NULL;
+	if (!shell || wl_resource_get_version(shell) < PLATINUM_SHELL_V1_DRAG_SPRING_SINCE_VERSION) {
+		return false;
+	}
+	platinum_shell_v1_send_drag_spring(shell, surface->resource);
+	return true;
+}
+
+bool platinum_shell_title_menu(struct plat_view *view, bool option) {
+	struct wlr_surface *surface = view->impl->get_surface(view);
+	struct surface_hint *h = surface ? find_hint(surface) : NULL;
+	struct wl_resource *shell = h && h->title_menu && surface->resource ? shell_of(surface) : NULL;
+	if (!shell || wl_resource_get_version(shell) < PLATINUM_SHELL_V1_TITLE_MENU_SINCE_VERSION) {
+		return false;
+	}
+	platinum_shell_v1_send_title_menu(shell, surface->resource, option ? 1 : 0);
+	return true;
+}
+
+void platinum_shell_report_position(struct plat_view *view) {
+	struct wlr_surface *surface = view->impl->get_surface(view);
+	/* A pop-up's place is its tab's (popup_tab), not where it was as a window. */
+	if (!surface || !surface->resource || !view->mapped || view->popup) {
+		return;
+	}
+	struct wl_resource *shell = shell_of(surface);
+	if (!shell) {
+		return; /* not one of ours */
+	}
+	struct wlr_box box = view_frame_box(view);
+	struct surface_hint *h = get_hint(surface);
+	if (h->reported && h->rx == box.x && h->ry == box.y) {
+		return;
+	}
+	h->reported = true;
+	h->rx = box.x;
+	h->ry = box.y;
+	platinum_shell_v1_send_window_position(shell, surface->resource, box.x, box.y);
+}
+
+static struct plat_view *mapped_view_for(struct wlr_surface *surface) {
+	struct plat_view *view;
+	wl_list_for_each(view, &the_server->views, link) {
+		if (view->impl->get_surface(view) == surface) {
+			return view;
+		}
+	}
+	return NULL;
+}
+
+static void handle_set_window_style(struct wl_client *client, struct wl_resource *resource,
+		struct wl_resource *surface_resource, uint32_t style) {
+	struct wlr_surface *surface = wlr_surface_from_resource(surface_resource);
+	get_hint(surface)->style = style == PLATINUM_SHELL_V1_STYLE_MOVABLE_MODAL
+		? DECOR_STYLE_MOVABLE_MODAL
+		: style == PLATINUM_SHELL_V1_STYLE_POPUP ? DECOR_STYLE_POPUP : DECOR_STYLE_DOCUMENT;
+	/* Already on screen: reframe now. */
+	struct plat_view *view = mapped_view_for(surface);
+	if (view) {
+		view_update_frame(view);
+	}
+}
+
+static void handle_set_window_position(struct wl_client *client, struct wl_resource *resource,
+		struct wl_resource *surface_resource, int32_t x, int32_t y) {
+	struct wlr_surface *surface = wlr_surface_from_resource(surface_resource);
+	struct surface_hint *h = get_hint(surface);
+	h->has_position = true;
+	h->x = x;
+	h->y = y;
+	struct plat_view *view = mapped_view_for(surface);
+	if (view) {
+		view_move_to(view, x, y);
+	}
+}
+
+/* The process behind the front window, for the menu bar's global menus. */
+static uint32_t active_pid;
+
+uint32_t view_pid(struct plat_view *view) {
+	if (view->type == PLAT_VIEW_XWAYLAND) {
+		return view->xsurface->pid > 0 ? (uint32_t)view->xsurface->pid : 0;
+	}
+	struct wlr_surface *surface = view->impl->get_surface(view);
+	if (!surface || !surface->resource) {
+		return 0;
+	}
+	pid_t pid = 0;
+	wl_client_get_credentials(wl_resource_get_client(surface->resource), &pid, NULL, NULL);
+	return pid > 0 ? (uint32_t)pid : 0;
+}
+
+void platinum_shell_launch_ready(struct plat_view *view) {
+	launch_ready(view->server, view_pid(view), view->app_id);
+}
+
+static void handle_begin_launch(struct wl_client *client, struct wl_resource *resource,
+		uint32_t cookie, uint32_t pid, const char *app_id) {
+	if (!launch_begin(the_server, resource, cookie, pid, app_id)) {
+		wl_client_post_implementation_error(client, "Cannot track application launch");
+		return;
+	}
+}
+
+static void handle_update_launch(struct wl_client *client, struct wl_resource *resource,
+		uint32_t cookie, uint32_t pid) {
+	launch_update(the_server, resource, cookie, pid);
+	/* The launched client may have mapped before the PID update arrived. */
+	if (pid) {
+		struct plat_view *view;
+		wl_list_for_each(view, &the_server->views, link) {
+			if (view->mapped) {
+				platinum_shell_launch_ready(view);
+			}
+		}
+		launch_ready_layers(the_server);
+	}
+}
+
+static void handle_cancel_launch(struct wl_client *client, struct wl_resource *resource,
+		uint32_t cookie) {
+	launch_cancel(the_server, resource, cookie);
+}
+
+static void send_active(struct wl_resource *resource) {
+	if (wl_resource_get_version(resource) >= PLATINUM_SHELL_V1_ACTIVE_CLIENT_SINCE_VERSION) {
+		platinum_shell_v1_send_active_client(resource, active_pid);
+	}
+	gtk_shell_send_active(resource, the_server);
+}
+
+void platinum_shell_gtk_changed(struct plat_server *server) {
+	struct wl_resource *resource;
+	wl_resource_for_each(resource, &resources) {
+		gtk_shell_send_active(resource, server);
+	}
+}
+
+void platinum_shell_focus_changed(struct plat_server *server) {
+	struct plat_view *view = server->focused_view;
+	uint32_t pid = view ? view_pid(view) : 0;
+	if (pid == active_pid) {
+		platinum_shell_gtk_changed(server);
+		return;
+	}
+	active_pid = pid;
+	struct wl_resource *r;
+	wl_resource_for_each(r, &resources) {
+		send_active(r);
+	}
+}
+
+static void handle_destroy(struct wl_client *client, struct wl_resource *resource) {
+	wl_resource_destroy(resource);
+}
+
+static void handle_keep_awake(struct wl_client *client, struct wl_resource *resource,
+		uint32_t id, uint32_t pid, const char *app_id, uint32_t what) {
+	idle_keep_awake(the_server, client, id, pid, app_id, what);
+}
+
+static void handle_user_activity(struct wl_client *client, struct wl_resource *resource) {
+	idle_input(the_server, IDLE_INPUT_MOTION);
+}
+
+static void handle_lock(struct wl_client *client, struct wl_resource *resource, uint32_t callback,
+		uint32_t always) {
+	lock_request(the_server, client, callback, always != 0);
+}
+
+static void handle_force_quit(struct wl_client *client, struct wl_resource *resource,
+		const char *app_id) {
+	if (!app_id || !*app_id) {
+		return;
+	}
+	/* Each process once, however many windows it has; never ourselves. */
+	uint32_t killed[64];
+	size_t n = 0;
+	struct plat_view *view;
+	wl_list_for_each(view, &the_server->views, link) {
+		if (!view->app_id || strcmp(view->app_id, app_id) != 0) {
+			continue;
+		}
+		const uint32_t pid = view_pid(view);
+		bool seen = pid <= 1 || pid == (uint32_t)getpid();
+		for (size_t i = 0; i < n && !seen; i++) {
+			seen = killed[i] == pid;
+		}
+		if (!seen && n < sizeof(killed) / sizeof(killed[0])) {
+			wlr_log(WLR_INFO, "force quit: %s (process %u)", app_id, pid);
+			kill((pid_t)pid, SIGKILL);
+			killed[n++] = pid;
+		}
+	}
+}
+
+static void handle_set_standard_size(struct wl_client *client, struct wl_resource *resource,
+		struct wl_resource *surface_resource, uint32_t width, uint32_t height) {
+	struct surface_hint *h = get_hint(wlr_surface_from_resource(surface_resource));
+	h->standard_w = width > 16384 ? 16384 : (int)width;
+	h->standard_h = height > 16384 ? 16384 : (int)height;
+}
+
+static void handle_set_proxy_icon(struct wl_client *client, struct wl_resource *resource,
+		struct wl_resource *surface_resource, uint32_t icon) {
+	struct wlr_surface *surface = wlr_surface_from_resource(surface_resource);
+	get_hint(surface)->proxy = icon <= 200 ? (int)icon : 0;
+	struct plat_view *view;
+	wl_list_for_each(view, &the_server->views, link) {
+		if (view->impl->get_surface(view) == surface) {
+			frame_set_proxy(view->frame, (int)get_hint(surface)->proxy);
+			frame_commit(view->frame);
+		}
+	}
+}
+
+static void handle_set_popup_tab(struct wl_client *client, struct wl_resource *resource,
+		struct wl_resource *surface_resource, int32_t x) {
+	struct wlr_surface *surface = wlr_surface_from_resource(surface_resource);
+	struct surface_hint *h = get_hint(surface);
+	h->has_tab = x >= 0;
+	h->tab_x = x;
+	struct plat_view *view = mapped_view_for(surface);
+	if (view && view->popup && x >= 0) {
+		view->popup_tab_x = x;
+		view_popup_layout(view);
+	}
+}
+
+void platinum_shell_popup_tab_moved(struct plat_view *view) {
+	struct wlr_surface *surface = view->impl->get_surface(view);
+	struct wl_resource *shell = surface && surface->resource ? shell_of(surface) : NULL;
+	if (!shell || wl_resource_get_version(shell) < PLATINUM_SHELL_V1_POPUP_TAB_SINCE_VERSION) {
+		return;
+	}
+	struct surface_hint *h = get_hint(surface);
+	h->has_tab = true;
+	h->tab_x = view->popup_tab_x;
+	platinum_shell_v1_send_popup_tab(shell, surface->resource, view->popup_tab_x);
+}
+
+void platinum_shell_popup_detached(struct plat_view *view) {
+	struct wlr_surface *surface = view->impl->get_surface(view);
+	if (!surface) {
+		return;
+	}
+	get_hint(surface)->style = DECOR_STYLE_DOCUMENT;
+	struct wl_resource *shell = surface->resource ? shell_of(surface) : NULL;
+	if (shell && wl_resource_get_version(shell) >= PLATINUM_SHELL_V1_POPUP_DETACH_SINCE_VERSION) {
+		platinum_shell_v1_send_popup_detach(shell, surface->resource);
+	}
+}
+
+static void handle_enable_title_menu(struct wl_client *client, struct wl_resource *resource,
+		struct wl_resource *surface_resource) {
+	get_hint(wlr_surface_from_resource(surface_resource))->title_menu = true;
+}
+
+static void handle_activate_app(struct wl_client *client, struct wl_resource *resource,
+		const char *app_id) {
+	if (app_id && *app_id) {
+		view_activate_app(the_server, app_id);
+	}
+}
+
+static void handle_close_app_window(struct wl_client *client, struct wl_resource *resource,
+		const char *app_id) {
+	view_close_front_app_window(the_server, app_id);
+}
+
+/* Kept as the resource's user data: 0 unsaid, 1 no field, 2 a field. */
+static void handle_text_field(struct wl_client *client, struct wl_resource *resource, uint32_t focused) {
+	wl_resource_set_user_data(resource, (void *)(uintptr_t)(focused ? 2 : 1));
+	osk_text_field(the_server, focused != 0);
+}
+
+int platinum_shell_text_field(struct wl_client *client) {
+	struct wl_resource *resource;
+	wl_resource_for_each(resource, &resources) {
+		if (wl_resource_get_client(resource) == client && wl_resource_get_user_data(resource)) {
+			return (int)(uintptr_t)wl_resource_get_user_data(resource) - 1;
+		}
+	}
+	return -1;
+}
+
+/* ⌘-Tab: the menu bar (the one client that knows the programs' names)
+ * picks the program and answers with activate_app. */
+void platinum_shell_switch_app(struct plat_server *server, int step) {
+	struct wl_resource *resource;
+	wl_resource_for_each(resource, &resources) {
+		if (wl_resource_get_version(resource) >= PLATINUM_SHELL_V1_SWITCH_APP_SINCE_VERSION) {
+			platinum_shell_v1_send_switch_app(resource, step);
+		}
+	}
+}
+
+static void send_layouts(struct wl_resource *resource, struct plat_server *server) {
+	if (wl_resource_get_version(resource) < PLATINUM_SHELL_V1_KEYBOARD_LAYOUTS_SINCE_VERSION ||
+			!server->kb_keymap) {
+		return;
+	}
+	char list[2048] = "";
+	const xkb_layout_index_t n = xkb_keymap_num_layouts(server->kb_keymap);
+	for (xkb_layout_index_t i = 0; i < n; i++) {
+		const char *name = xkb_keymap_layout_get_name(server->kb_keymap, i);
+		char line[256];
+		snprintf(line, sizeof(line), "%s\t%s\n",
+			(int)n == server->kb_layouts.n ? server->kb_layouts.codes[i] : "", name ? name : "");
+		if (strlen(list) + strlen(line) < sizeof(list)) {
+			strcat(list, line);
+		}
+	}
+	platinum_shell_v1_send_keyboard_layouts(resource, list, (uint32_t)server->kb_current);
+}
+
+void platinum_shell_layouts_changed(struct plat_server *server) {
+	struct wl_resource *resource;
+	wl_resource_for_each(resource, &resources) {
+		send_layouts(resource, server);
+	}
+}
+
+static void send_sticky(struct wl_resource *resource) {
+	if (wl_resource_get_version(resource) < PLATINUM_SHELL_V1_STICKY_KEYS_SINCE_VERSION) {
+		return;
+	}
+	unsigned latched, locked;
+	access_sticky_state(&latched, &locked);
+	platinum_shell_v1_send_sticky_keys(resource, access_sticky_on(), latched, locked);
+}
+
+void platinum_shell_sticky_changed(struct plat_server *server) {
+	struct wl_resource *resource;
+	wl_resource_for_each(resource, &resources) {
+		send_sticky(resource);
+	}
+}
+
+static void handle_set_keyboard_layout(struct wl_client *client, struct wl_resource *resource,
+		uint32_t index) {
+	input_set_layout(the_server, (int)index);
+}
+
+static const struct platinum_shell_v1_interface shell_impl = {
+	.set_window_style = handle_set_window_style,
+	.set_window_position = handle_set_window_position,
+	.destroy = handle_destroy,
+	.begin_launch = handle_begin_launch,
+	.update_launch = handle_update_launch,
+	.cancel_launch = handle_cancel_launch,
+	.keep_awake = handle_keep_awake,
+	.user_activity = handle_user_activity,
+	.lock = handle_lock,
+	.force_quit = handle_force_quit,
+	.activate_app = handle_activate_app,
+	.close_app_window = handle_close_app_window,
+	.text_field = handle_text_field,
+	.set_standard_size = handle_set_standard_size,
+	.enable_title_menu = handle_enable_title_menu,
+	.set_keyboard_layout = handle_set_keyboard_layout,
+	.set_proxy_icon = handle_set_proxy_icon,
+	.set_popup_tab = handle_set_popup_tab,
+};
+
+static void resource_destroy(struct wl_resource *resource) {
+	launch_cancel_owner(the_server, resource);
+	wl_list_remove(wl_resource_get_link(resource));
+}
+
+static void bind_shell(struct wl_client *client, void *data, uint32_t version, uint32_t id) {
+	struct wl_resource *resource =
+		wl_resource_create(client, &platinum_shell_v1_interface, version, id);
+	if (!resource) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(resource, &shell_impl, NULL, resource_destroy);
+	wl_list_insert(&resources, wl_resource_get_link(resource));
+	send_active(resource);
+	send_layouts(resource, the_server);
+	send_sticky(resource);
+}
+
+void platinum_shell_init(struct plat_server *server) {
+	the_server = server;
+	wl_list_init(&hints);
+	wl_list_init(&resources);
+	wl_global_create(server->display, &platinum_shell_v1_interface, 17, NULL, bind_shell);
+}

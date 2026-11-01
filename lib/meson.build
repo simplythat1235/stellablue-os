@@ -1,0 +1,133 @@
+# Pure drawing code shared by the compositor, the shell and the tests.
+cairo = dependency('cairo')
+threads = dependency('threads')
+
+platinum_inc = include_directories('.')
+platinum_lib = static_library('platinum',
+  'draw.c',
+  'text.c',
+  'pfont.c',
+  'chrome.c',
+  'menudraw.c',
+  'widgets.c',
+  'icons.c',
+  'logo.c',
+  'welcome.c',
+  'extensions.c',
+  'patterns.c',
+  'savers.c',
+  'settings.c',
+  'theme.c',
+  'electron.c',
+  # Where the desktop's other programs are, installed or in a build tree.
+  'locate.c',
+  # Shared-memory buffers for the C Wayland programs. Only their headers
+  # here: the programs link libwayland-client themselves, and the
+  # compositor, which never uses these, doesn't.
+  'wlclient.c',
+  include_directories: platinum_inc,
+  dependencies: [cairo, threads,
+    dependency('wayland-client').partial_dependency(compile_args: true, includes: true)],
+  c_args: [
+    '-DZACOS9_DATA_DIR="@0@"'.format(get_option('prefix') / get_option('datadir') / 'zacos9'),
+    '-DZACOS9_SOURCE_DIR="@0@"'.format(meson.project_source_root()),
+  ],
+)
+
+install_data(
+  files(
+    '../assets/sounds/platinum.wav', '../assets/sounds/glass.wav',
+    '../assets/sounds/droplet.wav', '../assets/sounds/pluck.wav',
+    '../assets/sounds/woodblock.wav', '../assets/sounds/chirp.wav',
+  ),
+  install_dir: get_option('datadir') / 'zacos9' / 'sounds',
+)
+# The Software window's catalog (shell/store).
+install_data('../assets/store/catalog.json',
+  install_dir: get_option('datadir') / 'zacos9' / 'store',
+)
+# Default theme bundle.
+install_data('../share/zacos9/themes/Default/theme.conf',
+  install_dir: get_option('datadir') / 'zacos9' / 'themes' / 'Default',
+)
+platinum_dep = declare_dependency(
+  link_with: platinum_lib,
+  include_directories: platinum_inc,
+  dependencies: [cairo, threads],
+)
+
+# Pixel tests against the Apple HIG figures (tools/measure/fetch.sh).
+figs_dir = meson.project_source_root() / 'tools/measure/figs'
+# Limited accounts' program filter (malcontent, over accountsservice).
+appfilter_lib = static_library('appfilter', 'appfilter.c',
+  dependencies: dependency('gio-unix-2.0'))
+appfilter_dep = declare_dependency(link_with: appfilter_lib,
+  include_directories: include_directories('.'),
+  dependencies: dependency('gio-unix-2.0'))
+test('appfilter', executable('test-appfilter', '../tests/lib/test_appfilter.c',
+  dependencies: [appfilter_dep]))
+# The control panels, from their desktop entries: the Control Panels folder
+# and the Zac menu's (lib/controlpanels.h).
+controlpanels_lib = static_library('controlpanels', 'controlpanels.c',
+  dependencies: [platinum_dep, dependency('glib-2.0')])
+controlpanels_dep = declare_dependency(link_with: controlpanels_lib,
+  include_directories: include_directories('.'),
+  dependencies: [platinum_dep, dependency('glib-2.0')])
+test('control-panels', executable('test-control-panels', '../tests/lib/test_controlpanels.c',
+  dependencies: [controlpanels_dep]))
+
+# The Collar modules, from their desktop entries: the Collar Modules folder.
+collarmodules_lib = static_library('collarmodules', 'collarmodules.c',
+  dependencies: [platinum_dep, dependency('glib-2.0')])
+collarmodules_dep = declare_dependency(link_with: collarmodules_lib,
+  include_directories: include_directories('.'),
+  dependencies: [platinum_dep, dependency('glib-2.0')])
+
+figcompare_dep = declare_dependency(
+  sources: '../tests/lib/figcompare.c',
+  include_directories: include_directories('../tests/lib'),
+  dependencies: [platinum_dep],
+)
+test('menudraw',
+  executable('test-menudraw', '../tests/lib/test_menudraw.c',
+    dependencies: [figcompare_dep]),
+  args: [figs_dir],
+)
+test('text', executable('test-text', '../tests/lib/test_text.c', dependencies: [platinum_dep]))
+test('draw', executable('test-draw', '../tests/lib/test_draw.c', dependencies: [platinum_dep]))
+test('welcome', executable('test-welcome', '../tests/lib/test_welcome.c', dependencies: [platinum_dep]))
+test('settings', executable('test-settings', '../tests/lib/test_settings.c', dependencies: [platinum_dep]))
+test('theme', executable('test-theme', '../tests/lib/test_theme.c', dependencies: [platinum_dep]))
+test('pfont', executable('test-pfont', '../tests/lib/test_pfont.c', dependencies: [platinum_dep]))
+test('savers', executable('test-savers', '../tests/lib/test_savers.c', dependencies: [platinum_dep]))
+test('electron', executable('test-electron', '../tests/lib/test_electron.c', dependencies: [platinum_dep]))
+test('locate', executable('test-locate', '../tests/lib/test_locate.c', dependencies: [platinum_dep]))
+test('widgets',
+  executable('test-widgets', '../tests/lib/test_widgets.c',
+    dependencies: [figcompare_dep]),
+  args: [figs_dir],
+)
+
+# The compiled font table must match the .pfont sources.
+python3 = find_program('python3', required: false)
+if python3.found()
+  sound_driver = executable('test-sound-driver', '../tests/lib/sound_driver.c',
+    dependencies: [platinum_dep])
+  test('sound-playback', python3,
+    args: [files('../tests/lib/test_sound.py'), sound_driver,
+      meson.project_source_root() / 'assets'],
+    timeout: 60)
+  test('fonts-current', python3,
+    args: [meson.project_source_root() / 'tools/fonts/build_fonts.py', '--check'])
+  # The TrueType copies too (skipped without python3-fonttools).
+  test('fonts-ttf-current', python3,
+    args: [meson.project_source_root() / 'tools/fonts/build_ttf.py', '--check'])
+endif
+if python3.found()
+  test('icons-current', python3,
+    args: [meson.project_source_root() / 'tools/icons/build_icons.py', '--check'])
+endif
+if python3.found()
+  test('patterns-current', python3,
+    args: [meson.project_source_root() / 'tools/patterns/make_patterns.py', '--check'])
+endif

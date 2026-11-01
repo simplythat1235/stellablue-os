@@ -1,0 +1,1133 @@
+zacos9 (1.6.3) trixie; urgency=medium
+
+  * Installs next to cups-browsed instead of conflicting with it (issue
+    #111): Printer Picker skips its implicitclass queues, which stopped
+    with no destination, as CUPS finds the same printers itself.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sat, 31 Oct 2026 19:50:06 -0400
+
+zacos9 (1.6.2) trixie; urgency=medium
+
+  * Store: fetch all ZacOS Extras releases so Turntable, Hue and Phone are
+    offered.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 30 Oct 2026 20:12:31 -0400
+
+zacos9 (1.6.1) trixie; urgency=medium
+
+  * Theme Installer asks for the theme file and inherits its name.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 30 Oct 2026 15:39:28 -0400
+
+zacos9 (1.6.0) trixie; urgency=medium
+
+  * Mac OS 9 theming: Theme Installer extracts the menu icon, boot art,
+    window colours, wallpapers, patterns and sounds from your own Mac OS 9
+    install.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 30 Oct 2026 14:33:08 -0400
+
+zacos9 (1.5.2) trixie; urgency=medium
+
+  * Theme Installer installs into Appearance > Themes and applies the
+    theme's colours.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 30 Oct 2026 12:55:21 -0400
+
+zacos9 (1.5.1) trixie; urgency=medium
+
+  * Seed the Theme Installer into the Zac menu for existing users.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 30 Oct 2026 11:20:33 -0400
+
+zacos9 (1.5.0) trixie; urgency=medium
+
+  * Add the theming feature: theme bundles, a Mac OS 9 theme extractor and
+    installer, and window chrome theming.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 30 Oct 2026 10:33:18 -0400
+
+zacos9 (1.4.6) trixie; urgency=medium
+
+  * Offer the Android Mirror (Scrcpy) and Steam extras in Software.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 30 Oct 2026 08:04:41 -0400
+
+zacos9 (1.4.5) trixie; urgency=medium
+
+  * Offer the Android Mirror (Scrcpy) and Steam extras in Software.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 30 Oct 2026 08:02:24 -0400
+
+zacos9 (1.4.4) trixie; urgency=medium
+
+  * Get Info: drop an image file onto the icon to set it as a custom icon
+    (PNG, JPEG, GIF, BMP, TIFF, WebP, ICO), and drag an icon to copy it to
+    another Get Info window. Copy and Paste of icons already worked.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Thu, 29 Oct 2026 17:30:00 -0400
+
+zacos9 (1.4.3) trixie; urgency=medium
+
+  * Applications, the System Folder, control panels and the other items in
+    the Macintosh view can now be made into aliases with Make Alias or by
+    dragging them to the Desktop; opening an alias opens the item. The
+    AppleTalk extension has a redrawn icon.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Thu, 29 Oct 2026 18:11:10 -0400
+
+zacos9 (1.4.2) trixie; urgency=medium
+
+  * Collar: uses the overlay layer so it stays reachable above full-screen
+    windows (games and others).
+  * debian: skip dh_dwz, which fails on some binaries in this tree.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Thu, 29 Oct 2026 16:30:00 -0400
+
+zacos9 (1.4.1) trixie; urgency=medium
+
+  * Utilities now lives under Applications and lists only balenaEtcher,
+    Disk Setup and other utilities you install yourself, instead of system
+    tools. Open resource windows such as Sounds > User stay open when they
+    refresh. Also includes 1.4.0's console game files and Game Player extra.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Thu, 29 Oct 2026 12:36:24 -0400
+
+zacos9 (1.4.0) trixie; urgency=medium
+
+  * Sniffer: console game files (NES, Super NES, PlayStation, Nintendo 64,
+    Sega, Game Boy) get their own cartridge and disc icons and kind names,
+    recognised by extension and (where an extension is shared) by the file's
+    own bytes.
+  * Software: the Game Player extra is offered under Extras; it plays those
+    game files in ZacOS 9 through RetroArch, mednafen and mupen64plus.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 28 Oct 2026 21:35:00 -0400
+
+zacos9 (1.3.6) trixie; urgency=medium
+
+  * Compositor: wlr-gamma-control-v1 support, so monitor colour temperature
+    can be adjusted (used by the Night Mode extra).
+  * Photo Booth: fixed a crash on the first frame from the camera.
+  * Software catalog: Night Mode extra (KDE Connect + Syncthing already
+    there as Phone).
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 28 Oct 2026 23:45:00 -0400
+
+zacos9 (1.3.5) trixie; urgency=medium
+
+  * Photo Booth: a new Apple menu application that shows a live picture
+    from the built-in camera or a connected webcam and takes a photo,
+    saved as "Photo N.png" in the Pictures folder (GStreamer).
+  * Collar Modules folder now actually lists the Collar's modules: their
+    desktop entries are installed (they were missing from the build).
+  * Multi-GPU: `render-gpu=discrete` renders on the add-in card so its
+    display is native; it falls back to the firmware order when that
+    card has no screen attached.
+  * Installer: the live installer medium is removed from apt's sources
+    on install and update, so fetching updates no longer fails.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 28 Oct 2026 23:00:00 -0400
+
+zacos9 (1.3.4) trixie; urgency=medium
+
+  * Monitors: the number flashed when a screen is clicked now appears on
+    that screen. The overlay uses a layer surface whose scope is not
+    ZacOS 9's own, so the compositor leaves it where it was put instead
+    of pinning it to the main display.
+  * Monitors: a "Main Display" checkbox sets which screen holds the
+    desktop icons and the menu bar's home, and the main screen's bar is
+    drawn solid in the arrangement so it is clear at a glance.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 28 Oct 2026 21:30:00 -0400
+
+zacos9 (1.3.3) trixie; urgency=medium
+
+  * Compositor: a screen is no longer turned off for good when a frame
+    commit fails transiently ("Device or resource busy" on Haswell HDMI).
+    Only a screen with no buffer format at all is left off, so a monitor
+    that glitches comes back on the next frame instead of staying dark
+    until reboot.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 28 Oct 2026 21:00:00 -0400
+
+zacos9 (1.3.2) trixie; urgency=medium
+
+  * Monitors panel: the number overlay is now a layer surface that the
+    compositor allows to choose its output, so clicking a monitor flashes
+    its number on the correct screen instead of always the main one.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 28 Oct 2026 20:30:00 -0400
+
+zacos9 (1.3.1) trixie; urgency=medium
+
+  * Monitors panel: clicking a monitor now flashes its number on the
+    correct physical screen (the previous version always flashed on one
+    screen). Screen matching uses name, geometry, size and index, with
+    setScreen() to place the overlay on the right display.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 28 Oct 2026 18:00:00 -0400
+
+zacos9 (1.3.1) trixie; urgency=medium
+
+  * Monitors: clicking a monitor in the arrangement panel now flashes that
+    monitor's number on the corresponding screen, matched by output name.
+  * Multi-monitor/multi-GPU: rendering now runs on the card with the largest
+    screen, fixing onboard-HDMI plus discrete-GPU setups; screens that cannot
+    be shown are turned off once instead of retried every frame; cursor-plane
+    errors are reported once; the Monitors panel uses the main screen's scale.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 28 Oct 2026 18:00:00 -0400
+
+zacos9 (1.3.0) trixie; urgency=medium
+
+  * Monitors control panel now shows a large number on each screen, so
+    multi-screen layouts are easy to read. Screens are repacked after a
+    scale or resolution change, so gaps no longer appear between them.
+    Changing the scale no longer makes the Monitors window disappear or
+    leave duplicate windows. The desktop picture is redrawn for the new
+    size instead of looking enlarged and cropped. The desktop and the
+    Collar come back as layer surfaces after a monitor is unplugged and
+    replugged.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 28 Oct 2026 06:00:00 -0400
+
+zacos9 (1.2.0) trixie; urgency=medium
+
+  * System Folder now works the way Mac OS 7-9's did, item by item:
+    Control Panels (Disabled) to turn panels off and on, Extensions and
+    Extensions (Disabled) likewise, Sounds you can drop a WAVE recording
+    into, Collar Modules and Collar Modules (Disabled), read-only Help,
+    Voices, Keyboard Layouts and Keychains folders, and Clipboard, Stash
+    and Notepad files in the System Folder.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 27 Oct 2026 14:00:00 -0400
+
+zacos9 (1.1.0) trixie; urgency=medium
+
+  * Fixes the File Sharing panel accepting any password when the system's
+    password checker couldn't be run. Fixes rare freezes while a window
+    waited for a helper program, and Date & Time leaving a stuck clock
+    change running. The printer windows no longer take clicks while waiting
+    for the printer system. Underneath, ZacOS 9's code has been reorganised
+    so it's easier for people to help build it: each kind of shared code,
+    setting and test now has one home, and Control Panels and the Zac
+    menu's Control Panels list the panels from what's installed.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 27 Oct 2026 12:51:12 -0400
+
+zacos9 (1.0.22) trixie; urgency=medium
+
+  * Fixes the Sniffer crashing after you looked in the Fonts folder: fonts
+    without the letter A (symbol, emoji and some Asian-language fonts)
+    damaged its memory each time their icons were drawn. Also fixes a
+    drawing tablet's pen landing in the wrong place in Krita and other X11
+    programs when a monitor you had arranged in Monitors isn't connected:
+    the screens now always start at the top left, as they're arranged.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 26 Oct 2026 12:22:14 -0400
+
+zacos9 (1.0.21) trixie; urgency=medium
+
+  * ZacOS 9 can now be installed next to what's already on a disk, such as
+    Windows or Haiku, instead of erasing it: the Installer offers Erase the
+    whole disk or Next to what's on it, shows the disk as a partition map,
+    and lets you drag the line to give ZacOS 9 more or less room. When
+    another system is on the computer, a menu lets you choose which one
+    starts. Disk Setup's Partition tab is now a partition map too: drag to
+    resize, + and − to add and delete. Also fixed: the desktop no longer
+    asks for an administrator's password when it opens another system's
+    disk by itself.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 26 Oct 2026 00:51:10 -0400
+
+zacos9 (1.0.20) trixie; urgency=medium
+
+  * Fixes a crash that could log you out: opening a menu in some older X11
+    programs (those built with Tk, such as the Extension Icons tool)
+    stopped the desktop. Windows that switch between ordinary and pop-up
+    after they're made are now handled properly.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sun, 25 Oct 2026 20:16:17 -0400
+
+zacos9 (1.0.19) trixie; urgency=medium
+
+  * Learn ZacOS: a new tutorial in the Help menu, starting with how the
+    lessons work, a path for people who have used a Mac before, and Mouse
+    Practice. The Zac menu is now a folder you can arrange, with aliases to
+    the desk accessories, a Disabled folder and their own icons, and it now
+    includes Jigsaw Puzzle (with its sound) and Plotter.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sun, 25 Oct 2026 19:09:26 -0400
+
+zacos9 (1.0.18) trixie; urgency=medium
+
+  * Screen Sharing plays the other computer's sound, and a bar at the top
+    of the screen switches between it and your own desktop (Use My Desktop
+    / Full Screen, Sound, Disconnect). Touchscreens: a two-finger tap is a
+    right-click, and an on-screen keyboard appears for a text field when no
+    keyboard is attached.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sun, 25 Oct 2026 14:43:48 -0400
+
+zacos9 (1.0.17) trixie; urgency=medium
+
+  * Screen Sharing: a new control panel lets other ZacOS computers see and
+    use this screen (asking you first, with the owner's password), and its
+    Connect tab shows another ZacOS computer's screen full screen and
+    undistorted, whatever this monitor's pixel size. Shut Down and Restart
+    work again in the login window, and Restart in the installer (issue
+    #38).
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sun, 25 Oct 2026 11:20:27 -0400
+
+zacos9 (1.0.16) trixie; urgency=medium
+
+  * Each monitor can have its own pixel size, and the menu bar can appear
+    on every monitor (Monitors: Menu Bar on Every Display). There is a new
+    1.75× size, and at 1.25×, 1.5× and 1.75× ZacOS's windows, title
+    bars, menus, pointer and text are drawn sharp at the screen's own
+    pixels, with fonts made for each size (issues #23, #34). Installing a
+    downloaded package now asks for an administrator's password, and fixes
+    from a security and reliability audit: clippings, updating an installed
+    disk from the installer, Software Update's checks, the lock screen and
+    Slow Keys.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sun, 25 Oct 2026 00:06:41 -0400
+
+zacos9 (1.0.15) trixie; urgency=medium
+
+  * Windows hidden but not closed, such as Krita's splash screen, no longer
+    leave their title bar behind. The pointer is the same size on the
+    desktop as inside programs at every pixel size, including 1.25x, 1.5x
+    and 3x. Bangla and other scripts outside DejaVu now have fonts (Noto).
+    Installing over another system's partitions works: the installer frees
+    a disk the live session or another system left mounted.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sat, 24 Oct 2026 18:17:05 -0400
+
+zacos9 (1.0.14) trixie; urgency=medium
+
+  * Monitors offers 1.25× and 1.5× pixel sizes: programs that can draw at
+    any size (Firefox, Chromium, GTK 4, Qt 6) stay sharp at them, while
+    ZacOS's own windows are drawn at 2× and shown smaller.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 23 Oct 2026 15:45:39 -0400
+
+zacos9 (1.0.13) trixie; urgency=medium
+
+  * Extensions Manager turns curated extensions on or off for start-up;
+    About This Computer shows GPU hardware with its driver; Finder shows
+    mounted ZacOS disks as Mac volumes; touchscreens work as touch in apps
+    that take wl_touch and as the mouse elsewhere.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 23 Oct 2026 12:02:38 -0400
+
+zacos9 (1.0.12) trixie; urgency=medium
+
+  * Extensions Manager turns curated extensions on or off for start-up;
+    About This Computer shows GPU hardware with its driver; Finder shows
+    mounted ZacOS disks as Mac volumes.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 23 Oct 2026 11:43:18 -0400
+
+zacos9 (1.0.11) trixie; urgency=medium
+
+  * Installed systems now start on computers and virtual machines with
+    Secure Boot turned on, such as UTM, instead of stopping at the UEFI
+    shell. Installing on a whole disk sets it up to start with both UEFI
+    and BIOS, so it still starts after switching the firmware's mode.
+    Password prompts from the keyring stay in front, with the keyboard,
+    until they're answered, instead of going behind the program that asked.
+    A program quitting or crashing no longer brings down the desktop and
+    logs you out.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Thu, 22 Oct 2026 18:25:49 -0400
+
+zacos9 (1.0.10) trixie; urgency=medium
+
+  * New folder icons: Happy Zac on the System Folder, a bone on
+    Applications, and Zac in his doghouse on Home. Every folder in the
+    System Folder has its own emblem, from a paint palette on Appearance to
+    a wrench on Utilities. The Memory control panel gains Compressed
+    Memory, and the RAM Disk counts what's on it from its files.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 21 Oct 2026 22:08:32 -0400
+
+zacos9 (1.0.9) trixie; urgency=medium
+
+  * Log Out now reaches the login window instead of freezing the screen.
+    The Guest account logs in, and the login window doesn't ask for a
+    password for it. Nap Time wakes the computer at the time it's set for
+    on computers whose clock keeps local time (as with Windows), not hours
+    late. The Control Panels folder shows every control panel, each with
+    its own icon.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 20 Oct 2026 17:59:21 -0400
+
+zacos9 (1.0.8) trixie; urgency=medium
+
+  * The Open and Save dialogs' list of disks and desktop folders shows
+    whole names on more than one line instead of cutting them short.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 20 Oct 2026 11:55:25 -0400
+
+zacos9 (1.0.7) trixie; urgency=medium
+
+  * Disk Setup can verify and repair a volume that is open: it names the
+    programs using it, quits them (a user service is stopped and started
+    again), closes the volume, checks it and opens it again. ZacOS 9's own
+    fonts, ZacOS 9 System and ZacOS 9 Views, are TrueType files in the
+    Fonts folder that any program can use. Printing no longer goes through
+    cups-browsed, whose queues stopped with no destination: CUPS finds the
+    printers itself, and the leftover queues are removed.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 20 Oct 2026 10:13:25 -0400
+
+zacos9 (1.0.6) trixie; urgency=medium
+
+  * Programs see only the fonts in the Fonts folder: the free fonts that
+    stand in for Mac OS 9's, and the fonts you add there yourself. Every
+    other installed font is hidden from them in a ZacOS session; serif text
+    uses Nimbus Roman, Times's stand-in. ZacOS now installs Linux Libertine
+    and Comic Neue with the rest of that set.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 19 Oct 2026 22:39:31 -0400
+
+zacos9 (1.0.5) trixie; urgency=medium
+
+  * Desktop icons no longer stay selected after clicking another one. Disk
+    Setup appears in System Folder > Utilities. The Fonts folder opens
+    quickly and shows a Mac OS 9-sized set of fonts (the rest under
+    Language Kits), with font files shown as suitcases with an A in their
+    own typeface. Drives that fail to mount at login (such as NTFS drives
+    left marked in use after a crash) are tried again and then opened
+    read-only, with Repair in Disk Setup; Disk Setup has a Mount
+    automatically checkbox for each drive.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 19 Oct 2026 19:52:31 -0400
+
+zacos9 (1.0.4) trixie; urgency=medium
+
+  * Other programs can add modules to The Collar, and Software has an
+    Extras category that installs ZacOS Extras, starting with Hue Lights.
+    ⌘-dragging The Collar now goes the whole way.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 19 Oct 2026 15:21:47 -0400
+
+zacos9 (1.0.3) trixie; urgency=medium
+
+  * Desktop icons left off the edge of the screen after a change of
+    resolution or scale come back onto it, and can be clicked again.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 19 Oct 2026 07:28:02 -0400
+
+zacos9 (1.0.2) trixie; urgency=medium
+
+  * Icon names are shown whole, wrapped onto lines under their icons
+    instead of cut short in the middle, and rows space themselves so names
+    never overlap. Disks and the Trash can be moved anywhere on the
+    desktop. On a scaled desktop with more than one screen, X11 programs
+    such as Adobe Reader take clicks everywhere again, including their
+    menus. Fixes a Sniffer crash when a script sent it a command and
+    disconnected straight away.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sun, 18 Oct 2026 23:52:19 -0400
+
+zacos9 (1.0.0) trixie; urgency=medium
+
+  * ZacOS 9 1.0. The installer has been tested from a freshly built ISO
+    under BIOS and UEFI, onto a whole disk and onto a partition beside
+    another system, which it leaves untouched. Fixes a Sniffer crash when a
+    program asking it to do something quit while an alert was open, and the
+    MacIP gateway no longer shows as a failed service at start-up.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sun, 18 Oct 2026 19:22:30 -0400
+
+zacos9 (0.2.1) trixie; urgency=medium
+
+  * The System Folder's Fonts view now lists available fonts with each name
+    drawn in its own font. Drag TrueType/OpenType files or collections in
+    to install, move user fonts out or to Trash to uninstall, and
+    Option-drag to copy without uninstalling. Includes protected system
+    fonts, collection confirmation, automatic cache refresh and
+    external-change monitoring.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sun, 18 Oct 2026 01:30:49 -0400
+
+zacos9 (0.2.0) trixie; urgency=medium
+
+  * A big update. Accounts: Limited accounts, Puppy Mode, a Guest account,
+    a login welcome message and Shared Documents. Disk Setup checks,
+    repairs and partitions disks, and the installer can prepare a disk.
+    New: Walkies, Keychain Access, Retriever, Speech, Numbers and Text,
+    Plotter, Jigsaw Puzzle and graphics tablet support. Also Hint Bubbles,
+    icons in the Zac menu, Tricks Manager sets, scheduled start-up and
+    shut-down, daily update checks, styled text in Scribble and much more.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sun, 18 Oct 2026 00:28:14 -0400
+
+zacos9 (0.1.64) trixie; urgency=medium
+
+  * The Network Browser no longer lists this computer's own file server,
+    and won't connect to it: its shared folders are already in the Sniffer.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 16 Oct 2026 20:37:25 -0400
+
+zacos9 (0.1.63) trixie; urgency=medium
+
+  * The Network Browser opens Macs that share files only over AppleTalk
+    (Mac OS 8.6 and earlier, such as a Power Mac 7500): they are listed as
+    NAME (AppleTalk), and log in and mount like any other server.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 16 Oct 2026 19:59:55 -0400
+
+zacos9 (0.1.62) trixie; urgency=medium
+
+  * File Sharing lets Mac OS 8.1 and earlier connect, with a short password
+    of their own, and the Chooser lists this computer over AppleTalk. The
+    Network Browser no longer lists printers as Windows computers.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 16 Oct 2026 18:32:56 -0400
+
+zacos9 (0.1.61) trixie; urgency=medium
+
+  * Finder and desktop update: custom icons, richer Find criteria and saved
+    searches, close-all and keyboard navigation, passphrase-protected file
+    copies, Folder Tricks and contextual commands, and Print
+    Window/Desktop. Adds Notepad, Stash, Key Tags and Bark Recorder;
+    expands appearance, sound and clock options, Web Sharing, shutdown
+    items and safe-mode login. Includes the AFP neighbourhood discovery fix
+    and preserves main's Smart Scrolling, Trash and menu improvements.
+    Classic updates are host-side feasibility groundwork only; production
+    color capture and direct guest app launching remain gated.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Thu, 15 Oct 2026 21:53:36 -0400
+
+zacos9 (0.1.60) trixie; urgency=medium
+
+  * Fix AFP servers disappearing from Neighbourhood. Bonjour now resolves
+    AFP and SMB services in parallel without waiting for unrelated LAN
+    services, so advertised servers are found within the scan deadline.
+    Direct-IP connections are unchanged.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Thu, 15 Oct 2026 19:50:10 -0400
+
+zacos9 (0.1.59) trixie; urgency=medium
+
+  * Milestone 3: Smart Scrolling, Mouse Tracks, Recent in Open/Save, Trash
+    locked items, and more.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Thu, 15 Oct 2026 18:25:41 -0400
+
+zacos9 (0.1.58) trixie; urgency=medium
+
+  * Users control panel: add, change and remove the accounts of the people
+    who use this computer, their pictures and passwords, who can administer
+    it and who can log in. Changes to other accounts ask for an
+    administrator's password. ZacOS now uses accountsservice for this.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Thu, 15 Oct 2026 12:01:07 -0400
+
+zacos9 (0.1.57) trixie; urgency=medium
+
+  * Pop-up windows: View > as Pop-up Window keeps a folder as a tab along
+    the bottom of the screen that opens when clicked or when something is
+    dragged onto it. Dragging items onto the desktop Trash works again, and
+    Empty Trash no longer stops at an application it can't uninstall.
+    LibreOffice installed from Software gets its GTK backend, so its menus
+    work in the menu bar.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Thu, 15 Oct 2026 11:38:29 -0400
+
+zacos9 (0.1.56) trixie; urgency=medium
+
+  * Help Center and ZacOS Help; System Profile and Devices and Volumes;
+    printer selection, desktop printers and print queues, and File > Print;
+    Old Dog startup disk selection; Finder search improvements, Clippings,
+    Internet locations, Show Clipboard, and new media and file-sharing
+    modules in The Collar.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 14 Oct 2026 21:45:07 -0400
+
+zacos9 (0.1.55) trixie; urgency=medium
+
+  * Finder list columns you can move, resize and reverse; View Options. The
+    Toy Box (Launcher). Internet control panel. Calculator, Dog Ears
+    (Stickies) and Scribble (SimpleText). Proxy icons in Finder title bars,
+    and collapsed windows spring open under a drag. Function keys that open
+    applications, documents and folders. The Pack: tear the Application
+    menu off into a palette. Trackpad and Accessibility panels: tap to
+    click, Sticky Keys, Slow Keys, Mouse Keys and Zoom.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 14 Oct 2026 19:14:18 -0400
+
+zacos9 (0.1.54) trixie; urgency=medium
+
+  * A Platinum login window replaces the text login. The Zac menu gains
+    Force Quit, Favorites, Recent Applications, Recent Documents and Recent
+    Servers, and Special gains Eject (⌘E) and Log Out (⇧⌘Q). ⌘-Tab
+    switches programs; Option-click on the desktop hides the one you leave.
+    Control-click or right-click on icons, windows, disks, the Trash and
+    the desktop for contextual menus. Option-click a close or collapse box
+    to act on all of a program's windows, ⌘-drag a window without
+    bringing it forward, and ⌘-click a Sniffer window's title for its
+    folder path (⌘-↑ opens the enclosing folder). Drag a network disk
+    to the Trash to eject it. New control panels: General Controls (hide
+    the desktop behind other programs, menu and cursor blinking, where Open
+    and Save start) and Zac Menu Options. The Keyboard panel now lists
+    every keyboard layout; tick up to four, switch with ⌘-Space or the
+    new keyboard menu, and ZacOS now follows the keyboard chosen at
+    install. In the Sniffer, View Options sets icon sizes, snap to grid,
+    Keep Arranged and list columns (Date Created, Label, Comments, Version,
+    folder sizes, relative dates), and Edit > Preferences sets
+    spring-loaded folders, grid spacing, standard views and your own label
+    names and colours. Some features now carry ZacOS names in place of
+    Apple's.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 13 Oct 2026 22:17:29 -0400
+
+zacos9 (0.1.53) trixie; urgency=medium
+
+  * Update project status and assets
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 12 Oct 2026 23:44:06 -0400
+
+zacos9 (0.1.52) trixie; urgency=medium
+
+  * Energy Saver and Screen Saver: after 5 minutes without use each screen
+    shows a screen saver (Desktop Patterns, Starfield, Bouncing Logo or
+    Blank Screen), and after 10 it goes dark; set them in the new Energy
+    Saver and Screen Saver control panels. A window filling a screen, or a
+    video asking to stay awake, keeps that screen awake while the others
+    sleep. Optionally, Ask for my password to wake locks the screens when
+    they go idle and before the computer sleeps.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sun, 11 Oct 2026 20:26:10 -0400
+
+zacos9 (0.1.51) trixie; urgency=medium
+
+  * VS Code's settings stay intact when ZacOS turns on its native title
+    bar: comments, large settings files and files it can't read are now
+    handled safely. Network disks whose names make the same folder name
+    (such as a/b and a-b) no longer share a place, and a disk that's
+    already connected is reused only if it really is the one asked for.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sun, 11 Oct 2026 16:27:45 -0400
+
+zacos9 (0.1.50) trixie; urgency=medium
+
+  * VS Code's menus reach the menu bar on every ZacOS computer: starting VS
+    Code (or VSCodium, Code - OSS, Cursor) from the Finder or the Apple
+    menu turns on its native title bar, unless a title bar style was chosen
+    already.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sat, 10 Oct 2026 23:00:30 -0400
+
+zacos9 (0.1.49) trixie; urgency=medium
+
+  * The Network Browser lists servers that announce themselves over IPv6
+    only, so computers no longer drop out of the list after connecting, and
+    names like "Adam’s Computer" show correctly.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sat, 10 Oct 2026 21:47:39 -0400
+
+zacos9 (0.1.48) trixie; urgency=medium
+
+  * Network disks are named after the shared folder, as on Mac OS 9 (your
+    home folder instead of "NAME's home"), and reconnecting no longer adds
+    (2), (3) and so on.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sat, 10 Oct 2026 21:20:48 -0400
+
+zacos9 (0.1.47) trixie; urgency=medium
+
+  * Apple menu: the Software catalog is now New Tricks and Software Update
+    is Fetch Updates, and the Apple-menu icon is a close-up of Happy Zac.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sat, 10 Oct 2026 20:30:19 -0400
+
+zacos9 (0.1.46) trixie; urgency=medium
+
+  * Menus of more applications in the menu bar: VS Code and other Electron
+    apps (started under X11, now sharp on HiDPI screens) and GIMP 3. GRUB's
+    start-up picture follows upgrades, so installed systems show Happy Zac
+    from the first moment.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sat, 10 Oct 2026 19:46:35 -0400
+
+zacos9 (0.1.45) trixie; urgency=medium
+
+  * New startup screens: Happy Zac is the boot logo, and the Welcome box is
+    now a 1984 Macintosh-style 'Welcome to Zacintosh.' box with the ZacOS
+    logo.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sat, 10 Oct 2026 01:47:42 -0400
+
+zacos9 (0.1.44) trixie; urgency=medium
+
+  * Add opt-in current-desktop RDP sharing through xrdp and WayVNC, with
+    TLS, PAM account access, private backend transport and on-demand
+    lifecycle commands. Remote-desktop engines remain optional installs.
+  * Honor virtual-pointer output mapping for correct remote mouse
+    coordinates on multi-monitor desktops. Document setup, local tests
+    and remaining second-computer validation.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 09 Oct 2026 23:32:15 -0400
+
+zacos9 (0.1.43) trixie; urgency=medium
+
+  * Add initial RustDesk Wayland integration: require the PipeWire capture
+    stack and route ScreenCast to the wlroots portal, preserving Finder's
+    file chooser. RustDesk remains an optional native package. Document
+    attended setup and experimental hosting limitations; video delivery
+    and remote input are not yet verified between computers.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 09 Oct 2026 21:49:57 -0400
+
+zacos9 (0.1.42) trixie; urgency=medium
+
+  * Fix false alias replacement warnings after disks are remounted or
+    device numbers change. Track filesystem identity and migrate unchanged
+    legacy aliases automatically, while still confirming genuine replacements.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 09 Oct 2026 20:49:05 -0400
+
+zacos9 (0.1.41) trixie; urgency=medium
+
+  * The Collar now matches the original layout open and closed, moves
+    between the screen bottom and the menu bar with Command-drag, and adds
+    Sound Set, per-display Resolution and Brightness, KDE Connect and
+    Keychain modules, plus a Collar control panel and a Command-F8 hot key.
+    The Keychain module unlocks locked keychains so apps such as ChatGPT
+    can open. New Picture Viewer opens image files fitted to the screen
+    with zoom in and out.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 09 Oct 2026 10:04:41 -0400
+
+zacos9 (0.1.40) trixie; urgency=medium
+
+  * Combined release: restores automatic desktop login, with applications
+    using their own sign-in flows, and introduces The Collar, a
+    screenshot-matched 24-pixel desktop control strip with original ZacOS
+    artwork. The Collar provides volume and output selection, Wi-Fi/network
+    status, Bluetooth power, brightness, battery status and confirmed
+    sleep, with folding, resizing, scrolling and saved placement. Fixes
+    layer-shell popup attachment and keeps Debian package tests serial
+    while compiling in parallel.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Fri, 09 Oct 2026 07:34:26 -0400
+
+zacos9 (0.1.39) trixie; urgency=medium
+
+  * Automatic login is restored: applications that need a password ask for
+    it in their own sign-in window when they open, instead of a password
+    prompt during startup. No stored passwords or keyrings are changed.
+    Full pre-release tests: 63 passed, 3 skipped, no failures.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Thu, 08 Oct 2026 15:45:28 -0400
+
+zacos9 (0.1.38) trixie; urgency=medium
+
+  * Application file choosers now list Desktop folder aliases and mounted
+    AFP and Windows/SMB disks, with real-path file and folder selection and
+    saving. Failed AFP connections automatically unmount and show a Server
+    Disconnected dialog instead of leaving stale desktop disks. Special
+    menu adds Disconnect Network Drive and Unmount Disk for mounted local
+    and USB storage, with explicit error reporting. Includes
+    encrypted-keyring password-login guidance without changing other users'
+    login settings. Full pre-release tests: 63 passed, 3 skipped, no
+    failures.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Thu, 08 Oct 2026 06:27:37 -0400
+
+zacos9 (0.1.37) trixie; urgency=medium
+
+  * File names are shown without their extensions, and documents carry the
+    icon of the application that opens them. The new File Exchange control
+    panel chooses which application opens each kind of document. Picture
+    files show previews of their pictures. The file chooser in applications
+    now shows Zacintosh HD and your mounted drives, like the Mac's, with
+    matching drive icons and Platinum-styled dialogs. Drag an application
+    into System Folder > Startup Items to open it at login, and drag a
+    startup item to the Trash to stop it.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Thu, 08 Oct 2026 05:08:38 -0400
+
+zacos9 (0.1.36) trixie; urgency=medium
+
+  * Added the ZacOS file chooser for standard application dialogs, clearer
+    startup-disk and About This Computer information, and improved Platinum
+    styling for GTK and Qt dialogs.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Thu, 08 Oct 2026 02:15:00 -0400
+
+zacos9 (0.1.35) trixie; urgency=medium
+
+  * Startup Items now launch after login; Finder aliases reconnect safely;
+    Extensions Manager refresh and service management are more reliable.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Thu, 08 Oct 2026 00:39:44 -0400
+
+zacos9 (0.1.34) trixie; urgency=medium
+
+  * Startup Items follow the FreeDesktop autostart rules. Aliases reconnect
+    when their original is renamed or moved, with Fix Alias and loop
+    detection. Extensions Manager gains Login Items and Background Services
+    views with safe, user-level controls. Get Info explains virtual versus
+    physical items.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 07 Oct 2026 23:09:13 -0400
+
+zacos9 (0.1.33) trixie; urgency=medium
+
+  * Desktop-first saving with an isolated per-user Zacintosh HD workspace;
+    mounted-disk places and USB drive badges.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 07 Oct 2026 20:00:28 -0400
+
+zacos9 (0.1.32) trixie; urgency=medium
+
+  * Extensions Manager and System Folder > Extensions now show curated,
+    friendly extension names, descriptions and Platinum icons, with Show
+    All available for every loaded driver. The startup splash displays
+    Welcome to ZacOS 9 while extension icons appear as their drivers load,
+    then hands the screen to the desktop with safe login and timeout
+    fallbacks. Includes all previous HDMI audio and Software loading fixes.
+    Reboot after installing to restart Finder and use the new boot splash.
+    The splash handoff is tested in software; hardware-specific flashing
+    still needs confirmation.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 07 Oct 2026 19:04:57 -0400
+
+zacos9 (0.1.31) trixie; urgency=medium
+
+  * Software no longer gets stuck loading on its first page. The Flathub
+    catalog download now always finishes in the background, and the
+    Featured page no longer waits for it.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 07 Oct 2026 17:16:20 -0400
+
+zacos9 (0.1.30) trixie; urgency=medium
+
+  * Aliases in the Finder now show their original's icon (including
+    application icons), in icon and list views. Also includes the
+    groundwork plan and test probe for future seamless Classic windows (not
+    enabled yet).
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 07 Oct 2026 17:08:13 -0400
+
+zacos9 (0.1.29) trixie; urgency=medium
+
+  * Recover HDMI audio on Haswell Macs (iMac14,1) when it freezes
+    mid-stream: a background watchdog restarts the HDMI output within a few
+    seconds instead of needing a restart or a switch to built-in audio.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Wed, 07 Oct 2026 16:33:06 -0400
+
+zacos9 (0.1.28) trixie; urgency=medium
+
+  * Expand System Folder with read-only Sounds, Startup Items, Application
+    Support, Device Drivers, Network, Software Components and Extensions
+    views, plus protected System Logs information. Add System Information
+    and a read-only Extensions Manager, resource-aware Get Info, and
+    allowlisted alias browsing. Applications continues to show
+    user-installed apps rather than system utilities.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 06 Oct 2026 21:36:54 -0400
+
+zacos9 (0.1.27) trixie; urgency=medium
+
+  * Keep Applications focused on user-installed apps: automatically
+    installed Debian dependencies no longer appear there. Settings, system
+    tools and file managers such as qps, PCManFM, desktop/screen-saver
+    settings and Print Settings now appear in System Folder > Utilities,
+    alongside shipped tools such as balenaEtcher. Existing folder
+    customizations and launcher names/labels are migrated, and apt
+    installation-mark changes refresh automatically. System tools and
+    dependencies are protected from Finder Trash uninstall. No packages are
+    removed. Restart after updating to use the new Finder.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 06 Oct 2026 19:57:51 -0400
+
+zacos9 (0.1.26) trixie; urgency=medium
+
+  * Finder now automatically discovers newly installed Flatpak
+    applications, including first-install export directories and icons.
+    Moving supported Debian or user Flatpak applications to Trash queues
+    uninstall; Put Away cancels removal, and Empty Trash confirms and
+    uninstalls while preserving personal data. Failed removals remain
+    queued for retry.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 06 Oct 2026 18:03:52 -0400
+
+zacos9 (0.1.25) trixie; urgency=medium
+
+  * Flathub applications now appear in the main Software categories with
+    AppStream descriptions and icons, controlled by a remembered Include
+    Flathub applications checkbox. Active local administrators can mount
+    and eject read-only Mac drives without repeated password prompts after
+    reboot; no administrator password is stored.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 06 Oct 2026 17:05:11 -0400
+
+zacos9 (0.1.24) trixie; urgency=medium
+
+  * Fix Flathub being incorrectly rejected as an unofficial source when
+    Flatpak omits the empty remote-options column. Flathub browsing also
+    accepts application entries with omitted empty descriptions, allowing
+    the complete catalog to load. Official URL checks and disabled-remote
+    handling remain in place; no existing remote is replaced.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 06 Oct 2026 16:24:50 -0400
+
+zacos9 (0.1.23) trixie; urgency=medium
+
+  * APFS mounting now skips standard helper volumes such as Preboot,
+    Recovery, VM and Update. Normal data/system volumes appear in Sniffer
+    using their stored disk names, such as Chromasystem SSD, and open
+    directly instead of showing numbered container folders. Separate system
+    and Data volumes remain visible. Mounts stay read-only. Helper
+    filtering uses exact standard names because the Debian reader does not
+    expose volume roles; custom-renamed helper volumes cannot be identified
+    automatically. Install and reboot to apply the change to existing
+    mounts.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 06 Oct 2026 15:52:05 -0400
+
+zacos9 (0.1.22) trixie; urgency=medium
+
+  * Fix the APFS device-or-resource-busy mount error in 0.1.21. Mount
+    detection now uses the kernel mount table instead of stat-based checks
+    that miss some APFS FUSE mounts. Includes complete rollback,
+    original-error reporting, leftover-mount recovery through eject, and
+    safe image-cache cleanup. Mounting remains read-only; browsing the
+    affected APFS volume still requires hardware verification.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 06 Oct 2026 15:31:58 -0400
+
+zacos9 (0.1.21) trixie; urgency=medium
+
+  * Fix the APFS mount error shown at startup in 0.1.20. APFS volumes are
+    now enumerated and mounted using numeric indexes rather than the
+    reader's unsupported all option. Includes multi-volume desktop
+    detection, eject cleanup and rollback regression tests. Mounting
+    remains read-only; actual mounting of the reported drive still needs
+    hardware verification.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 06 Oct 2026 15:14:17 -0400
+
+zacos9 (0.1.20) trixie; urgency=medium
+
+  * Read-only mounting for HFS/HFS+ and supported APFS physical volumes and
+    Mac disk images. Double-click raw, Disk Copy, DMG, sparseimage or
+    sparsebundle images to browse them in Sniffer, with desktop icons and
+    eject cleanup. Includes required runtime dependencies and protections
+    against initializing APFS/CoreStorage disks. Encrypted/FileVault, MFS
+    and some APFS features remain unsupported; physical-disk mounting still
+    requires hardware verification.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 06 Oct 2026 14:33:04 -0400
+
+zacos9 (0.1.19) trixie; urgency=medium
+
+  * Sound sets now play window-drag and drag-release sounds from classic
+    Mac OS sound sets, decode compressed (mu-law, IMA4, twos) samples,
+    accept low-rate sounds, and import up to 256 sets.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 06 Oct 2026 13:57:09 -0400
+
+zacos9 (0.1.18) trixie; urgency=medium
+
+  * App windows now open nearly full-screen, leaving the desktop icons
+    visible around them. Classic: installing or updating ZacOS 9 gives
+    SheepShaver the low-memory permission Old World ROMs need, so Classic
+    starts without a manual setcap step (requires the zacos9-emulators
+    package).
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 06 Oct 2026 13:33:20 -0400
+
+zacos9 (0.1.17) trixie; urgency=medium
+
+  * Fix Wayland app content overlapping the classic window frame by
+    removing the double-applied window-geometry offset.
+  * Test document and dialog content insets, nonzero geometry offsets,
+    and fullscreen restoration; document the correct frame placement.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 06 Oct 2026 12:49:29 -0400
+
+zacos9 (0.1.16) trixie; urgency=medium
+
+  * Keep Platinum dialog windows above applications and show status while
+    supported archives expand.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 06 Oct 2026 12:27:53 -0400
+
+zacos9 (0.1.15) trixie; urgency=medium
+
+  * Add GTK 3 Wayland global menus, including Galculator, with per-window
+    focus matching, live action states and a realization-safe GTK module.
+  * Register the real Desktop in GTK and Qt save dialogs; support Desktop
+    application and folder aliases while preserving originals and disk icons.
+  * Show responsive Platinum copy/move progress dialogs with Stop and safe
+    cleanup of incomplete copies, preserving aliases and resource forks.
+  * Replace grim-based Screen Snapshot with native committed-frame capture,
+    validated image buffers and atomic PNG saves without screencopy locks.
+  * Document the administrator-authorized local Classic mapping fix and
+    add focused menu, Desktop, transfer and screenshot regression tests.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 06 Oct 2026 03:30:44 -0400
+
+zacos9 (0.1.14) trixie; urgency=medium
+
+  * Fix USB erasing reporting the disk in use because of the helper's
+    own exclusive claim. Refresh kernel partitions through the owned
+    descriptor and abort before formatting on refresh failure.
+  * Ask for a validated FAT32 disk name before erase or initialization
+    confirmation. Preserve spaces during label verification and add
+    disposable-image and offscreen naming regression tests.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Tue, 06 Oct 2026 00:32:31 -0400
+
+zacos9 (0.1.13) trixie; urgency=medium
+
+  * Add Special > Erase Disk for selected eligible USB disks. Require
+    explicit whole-disk confirmation and administrator authorization,
+    then safely unmount and format as Untitled (FAT32).
+  * Preserve system and unsafe-storage protections, revalidate disk
+    identity, and inhibit automount while erasing. Add mocked safety,
+    menu-state and controller regression tests.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 05 Oct 2026 19:17:04 -0400
+
+zacos9 (0.1.12) trixie; urgency=medium
+
+  * Fix USB hot-plug discovery: service GIO events alongside Qt, mount
+    volumes that become ready after insertion, and listen before startup
+    enumeration. Show mounted disks under /run/media.
+  * Register unreadable-disk reporting before automount and refresh disk
+    icons after mount completion. Add hardware-free hot-plug regression tests.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 05 Oct 2026 18:39:53 -0400
+
+zacos9 (0.1.11) trixie; urgency=medium
+
+  * Offer Eject, Ignore and Initialize when eligible unreadable USB disks
+    are inserted. Require explicit whole-disk erase confirmation and
+    administrator authorization before creating an Untitled FAT32 volume.
+  * Protect mounted, system, encrypted and other unsafe storage; recheck
+    device identity before initialization and install the required tools.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 05 Oct 2026 17:53:43 -0400
+
+zacos9 (0.1.10) trixie; urgency=medium
+
+  * Add distinct window collapse and expand sounds, controlled repeating
+    window-drag playback, and an optional drag-end sound. Import classic
+    PCM window action samples and stop playback on release or cancellation.
+  * Require unar at runtime so StuffIt .sit archives can expand beside
+    themselves when double-clicked in Sniffer.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 05 Oct 2026 17:18:26 -0400
+
+zacos9 (0.1.9) trixie; urgency=medium
+
+  * Add Fetch Software and New Tricks to the Apple menu. Expand the
+    software catalog with optional sources, add appearance presets and
+    sound themes, and improve Finder archive and file handling.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 05 Oct 2026 15:34:16 -0400
+
+zacos9 (0.1.8) trixie; urgency=medium
+
+  * Fix badly stuttering HDMI and DisplayPort sound on computers with Intel
+    Haswell graphics, such as the iMac14,1: the audio driver now reads the
+    HDMI controller's link position. On Macs, mask ACPI events that fire
+    nonstop and kept a CPU busy. Restart after updating.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 05 Oct 2026 15:08:22 -0400
+
+zacos9 (0.1.7) trixie; urgency=medium
+
+  * Add Mac OS-style multiple selection in Sniffer: dotted selection
+    rectangles on the desktop and in icon/list windows, Shift-click and
+    Shift-drag toggling, and Edit > Select All with Command-A.
+  * Autoscroll list-window selection rectangles and add an offscreen test
+    for selection gestures and moving several items with one drop.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 05 Oct 2026 05:02:12 -0400
+
+zacos9 (0.1.6) trixie; urgency=medium
+
+  * Show an original animated dog cursor during application launches and
+    standard busy states, with readiness tracking and timeout recovery.
+  * Extract 7z archives in place when double-clicked in Sniffer.
+  * Add user-created desktop patterns from image files and classic Mac
+    resource forks, MacBinary, AppleDouble, BinHex and PICT containers.
+  * Add a separate Wallpaper folder and Appearance tab with Fit, Fill,
+    Stretch and Center placement independently on each monitor.
+  * Package archive and image decoding dependencies and add focused
+    cursor, launch, extraction, background import and rendering tests.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 05 Oct 2026 04:40:46 -0400
+
+zacos9 (0.1.5) trixie; urgency=medium
+
+  * Rename user-visible Finder branding to Sniffer while preserving
+    executable names and application identifiers for compatibility.
+  * Honor Wayland and Xwayland fullscreen requests, fill the selected
+    monitor without decorations, and restore window geometry on exit.
+  * Preview the selected alert sound after successful volume adjustments.
+  * Add fullscreen protocol tests and sound feedback regression coverage.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 05 Oct 2026 03:44:34 -0400
+
+zacos9 (0.1.4) trixie; urgency=medium
+
+  * Center complete boot and startup artwork independently on each monitor,
+    including unequal resolutions, mirrored layouts and HiDPI displays.
+  * Replicate Plymouth progress and password prompts across displays and
+    activate the initramfs update trigger when installing the theme.
+  * Test multi-monitor startup, display changes and Plymouth scripting.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 05 Oct 2026 03:21:05 -0400
+
+zacos9 (0.1.3) trixie; urgency=medium
+
+  * Sound control panel: select built-in speakers, HDMI/DisplayPort
+    monitors, headphones and Bluetooth outputs; route current playback
+    to the selected output and refresh volume, mute and hot-plug changes.
+  * Use asynchronous sound-server commands with timeouts and visible
+    errors; add sound-output regression tests.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Mon, 05 Oct 2026 02:58:11 -0400
+
+zacos9 (0.1.2) trixie; urgency=medium
+
+  * Bluetooth control panel; installer can update an existing ZacOS 9;
+    every drive on the desktop; long icon names cut in the middle; Show in
+    Folder; zip files expand on double-click; balenaEtcher in Applications
+    > Utilities.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sun, 04 Oct 2026 20:06:05 -0400
+
+zacos9 (0.1.1) trixie; urgency=medium
+
+  * Screen Snapshot in the Apple menu.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sun, 04 Oct 2026 19:05:14 +0000
+
+zacos9 (0.1.0) trixie; urgency=medium
+
+  * Software Update in the Apple menu; global menus for Qt 6 programs;
+    clicking the desktop brings the Finder forward; Cmd-C and Cmd-V copy
+    and paste in Terminal.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Sun, 04 Oct 2026 18:55:28 +0000
+
+zacos9 (0.0.1) trixie; urgency=medium
+
+  * First packaged build: compositor, menu bar, Finder, control panels,
+    Classic launcher, and the ZacOS 9 login session.
+
+ -- adamjlawson-ctrl <adamjlawson@gmail.com>  Thu, 01 Oct 2026 12:00:00 +0000

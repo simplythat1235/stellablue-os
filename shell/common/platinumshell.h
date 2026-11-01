@@ -1,0 +1,72 @@
+#pragma once
+
+#include <QPoint>
+#include <QSize>
+#include <QStringList>
+#include <functional>
+#include <cstdint>
+
+class QObject;
+class QWidget;
+
+/* Window frame styles zacos9-wm can draw (platinum-shell-v1). */
+enum class FrameStyle {
+	Document = 0,
+	MovableModal = 1,
+	/* A pop-up window: a tab at the bottom of the screen (zacos9-wm 14+). */
+	Popup = 2,
+};
+
+/* Bind platinum-shell-v1 if the compositor offers it (zacos9-wm does). */
+void platinumShellInit();
+/* Ask for a frame style; call after the window is shown. */
+void platinumSetFrameStyle(QWidget *window, FrameStyle style);
+/* The content size the zoom box gives the window ("just big enough"); the
+ * window must be shown. An empty size: the zoom box fills the screen. */
+void platinumSetStandardSize(QWidget *window, QSize size);
+/* ⌘-click (`option`: Option-⌘-click) on the window's title text calls
+ * `callback`, the button still down, instead of moving the window. Call
+ * once the window is shown. */
+void platinumOnTitleMenu(QWidget *window, std::function<void(bool option)> callback);
+/* The process whose window is in front (0: none, the desktop's), and a
+ * callback for when it changes. */
+uint32_t platinumActiveClient();
+void platinumOnActiveClient(QObject *owner, std::function<void()> changed);
+/* The keyboard layout in use, by its code ("us", "de(nodeadkeys)"; empty
+ * until zacos9-wm says), and a callback for when it changes. */
+QString platinumKeyboardLayout();
+void platinumOnKeyboardLayout(QObject *owner, std::function<void()> changed);
+/* Mac OS 9's proxy icon: the small icon (a pl_icon_kind) before the
+ * window's title. Dragging it calls `dragged`, the button still down, to
+ * start a drag of what the window shows; null: it can't be dragged. Call
+ * once the window is shown. */
+void platinumSetProxyIcon(QWidget *window, int iconKind, std::function<void()> dragged);
+/* Pop-up windows (View > as Pop-up Window): whether zacos9-wm has them;
+ * where the window's tab goes along the bottom of the screen (layout x,
+ * negative for the first free place); and being told when the user moves
+ * the tab, or drags it up into an ordinary window. Call once shown. */
+bool platinumHasPopupWindows();
+void platinumSetPopupTab(QWidget *window, int x);
+void platinumOnPopup(QWidget *window, std::function<void(int x)> tabMoved,
+	std::function<void()> detached);
+/* Space pressed during a drag over one of our windows (zacos9-wm 15+):
+ * spring the folder under it open now. */
+void platinumOnDragSpring(std::function<void()> spring);
+/* Ask for the window to appear at `frameTopLeft` (layout coordinates);
+ * call right after show(), before the window first draws. */
+void platinumSetWindowPosition(QWidget *window, QPoint frameTopLeft);
+/* Be told where the window is whenever it maps or the user moves it. */
+void platinumOnWindowPosition(QWidget *window, std::function<void(QPoint)> callback);
+uint32_t platinumBeginLaunch(const QString &appId = {});
+void platinumUpdateLaunch(uint32_t cookie, uint32_t pid);
+void platinumCancelLaunch(uint32_t cookie);
+/* Bring a program forward, as the Application menu does (the Sniffer's
+ * id brings the desktop forward when it has no windows). */
+void platinumActivateApp(const QString &appId);
+/* Ask the compositor to close the application's frontmost window. */
+bool platinumCloseFrontAppWindow(const QString &appId);
+/* Kill the processes behind an app's windows (the Apple menu's Force
+ * Quit); false if the compositor can't. */
+bool platinumForceQuit(const QString &appId);
+bool platinumStartApplication(const QString &program, const QStringList &args,
+	const QString &directory = {});

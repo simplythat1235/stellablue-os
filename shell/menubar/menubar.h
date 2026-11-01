@@ -1,0 +1,294 @@
+#ifndef ZACOS9_MENUBAR_H
+#define ZACOS9_MENUBAR_H
+
+#include <stdbool.h>
+#include <wayland-client.h>
+
+#include "menudraw.h"
+#include "text.h"
+
+#define MAX_ITEMS 48
+#define FINDER_APP_ID "zacos9-finder"
+#define MAX_TITLES 12
+
+struct zwlr_foreign_toplevel_handle_v1;
+struct zwlr_foreign_toplevel_manager_v1;
+struct zwp_virtual_keyboard_manager_v1;
+
+/* ---- running apps (toplevels.c) ----------------------------------------- */
+
+struct toplevel {
+	struct wl_list link;
+	struct zwlr_foreign_toplevel_handle_v1 *handle;
+	char *title, *app_id;
+	bool activated, minimized;
+	/* Pending state, applied on "done". */
+	char *p_title, *p_app_id;
+	bool p_activated, p_minimized;
+	unsigned last_active; /* activation counter, for ordering */
+};
+
+struct app {
+	char *app_id;
+	char *name;  /* display name from its .desktop file, else app_id */
+	bool active; /* one of its windows is focused */
+	bool hidden; /* every window minimized */
+};
+
+void toplevels_init(struct zwlr_foreign_toplevel_manager_v1 *mgr);
+struct wl_list *toplevels_list(void);
+/* Distinct apps, front-most first. Returns the count; apps[] valid until
+ * the next call. */
+int apps_collect(struct app *apps, int max);
+const char *app_display_name(const char *app_id);
+void app_activate(const char *app_id, struct wl_seat *seat);
+void app_set_hidden(const char *app_id, bool hidden);
+void app_close_front_window(const char *app_id);
+void app_quit(const char *app_id);
+/* ⌘-Tab: the program `step` (1 or -1) after the front one, alphabetically
+ * by name, the Sniffer always among them. Valid until the next call. */
+const char *app_switch_target(int step);
+/* The same choice on a given list (front first, as apps_collect gives). */
+const char *app_switch_pick(struct app *apps, int n, int step);
+/* The active app to hide when Option-selecting target, or NULL if unchanged. */
+const char *app_switch_option_previous(struct app *apps, int n, const char *target);
+
+/* ---- menus (menus.c) ----------------------------------------------------- */
+
+enum action {
+	ACT_NONE,
+	ACT_LAUNCH,       /* arg: shell command */
+	ACT_CLOSE_WINDOW,
+	ACT_QUIT_APP,
+	ACT_HIDE_APP,
+	ACT_HIDE_OTHERS,
+	ACT_SHOW_ALL,
+	ACT_ACTIVATE_APP, /* arg: app id */
+	ACT_ABOUT,
+	ACT_TOGGLE_SETTING, /* arg: desktop.conf key, toggled between 0 and 1 */
+	ACT_EDIT_COMMAND, /* key: the ⌘ letter, sent to the front app */
+	ACT_EDIT_CLEAR,
+	ACT_FINDER,       /* arg: Finder command name */
+	ACT_DBUSMENU,     /* arg: dbusmenu "sender path id" or opaque GTK route */
+	ACT_KEYBOARD_LAYOUT, /* arg: the layout's index */
+};
+
+/* ⌘⌫ (delete) as a menu shortcut. */
+#define KEY_DELETE_GLYPH '\b'
+
+struct mb_menu;
+
+struct mb_item {
+	char *label;  /* NULL = separator */
+	char key;     /* ⌘ shortcut, or 0 */
+	bool shift;   /* with ⇧ (⇧⌘Q) */
+	/* The Zac menu's small icons, as Mac OS 9's Apple menu had: a program's
+	 * own (MENU_ICON square ARGB, cached, not owned), else one of ours
+	 * (pl_icon_kind + 1; 0 for none). */
+	const uint32_t *icon_px;
+	int icon_kind;
+	bool enabled, checked;
+	enum action action;
+	char *arg;
+	struct mb_menu *submenu; /* hierarchical menu (owned), or NULL */
+	uint32_t swatch;         /* label color square, or 0 */
+	struct plat_text *label_text, *key_text;
+	bool option;             /* chosen with Option held (menus_perform) */
+};
+
+struct mb_menu {
+	char *title;            /* NULL for an icon title */
+	const uint32_t *icon;
+	bool handle;            /* the Application menu's ribbed handle */
+	struct mb_item items[MAX_ITEMS];
+	int n;
+	struct plat_text *title_text;
+};
+
+/* The menus currently on the bar, rebuilt when the front app changes. */
+struct mb_bar {
+	struct mb_menu left[MAX_TITLES];   /* logo menu, then app menus */
+	int n_left;
+	struct mb_menu right[4];           /* clock (no menu), Sticky Keys (no menu), keyboard, Application menu */
+	int n_right;
+	bool has_clock;                    /* right[0] is the clock */
+	struct mbar_title left_titles[MAX_TITLES], right_titles[4];
+};
+
+void menus_rebuild(struct mb_bar *bar, int screen_w);
+/* Clicking the clock flips it between the time and the date. */
+void menus_toggle_clock(void);
+/* The Application menu's ribbed handle shows or hides the front program's
+ * name there (its icon instead): dragged left, shown; right, hidden; a
+ * click switches. */
+void menus_toggle_app_name(void);
+void menus_show_app_name(bool shown);
+/* The program's own icon for that title (appicon.c), MBAR_ICON_W x
+ * MBAR_ICON_H straight-alpha ARGB, or NULL if it has none we can load. */
+const uint32_t *app_icon_title(const char *app_id);
+/* A menu item's icon (appicon.c): a desktop entry's, or a program's. */
+#define MENU_ICON 16
+/* Weak: tests link the menus without the icons (callers check first). */
+const uint32_t *menu_icon_for_desktop(const char *desktop_path) __attribute__((weak));
+const uint32_t *menu_icon_for_app(const char *app_id) __attribute__((weak));
+void menus_hourly_chime(void);
+/* Sticky Keys (platinum-shell-v1 sticky_keys): while it is on, the bar
+ * shows the modifiers it holds, a locked one in brackets. */
+void menus_set_sticky(bool on, unsigned latched, unsigned locked);
+/* Its title: "" when off, a dot when on with nothing held. */
+void menus_sticky_title(bool on, unsigned latched, unsigned locked, char *out, size_t size);
+void menus_free(struct mb_bar *bar);
+void menus_perform(struct mb_item *item, bool option_held);
+/* Building blocks for menus filled elsewhere (appmenu.c). */
+struct mb_menu *menus_new_menu(struct mb_menu *menus, int *n, const char *title);
+struct mb_item *menus_add_item(struct mb_menu *m, const char *label, char key,
+	bool enabled, enum action action, const char *arg);
+
+/* ---- other programs' menus (appmenu.c) ------------------------------------ */
+
+struct pollfd;
+
+/* Owns com.canonical.AppMenu.Registrar and prepares GTK menu integration.
+ * Focus metadata is supplied with the setters below after initialization. */
+void appmenu_init(void);
+void appmenu_set_active_pid(uint32_t pid);
+/* GTK exports of the focused surface: bus_name must be a unique name and
+ * paths must be object paths. The bus owner is asynchronously checked
+ * against active_pid before accepting exports. Empty bus/menu paths clear
+ * GTK selection; unavailable exports fall back to the registrar. Strings
+ * are copied and may be supplied before appmenu_init(). */
+void appmenu_set_active_gtk(const char *bus_name, const char *app_menu_path,
+	const char *menubar_path, const char *window_path, const char *application_path);
+/* Appends the front program's own menus; false if it has none. */
+bool appmenu_add_menus(struct mb_menu *menus, int *n, int max);
+void appmenu_perform(const char *arg);
+/* GLib's main context in our poll() loop: fills up to max pollfds and
+ * may shorten the timeout; dispatch gets the same fds back after poll(). */
+int appmenu_poll_prepare(struct pollfd *fds, int max, int *timeout);
+void appmenu_poll_dispatch(const struct pollfd *fds);
+
+/* ---- apple-menu-equivalent items and launching (launch.c) ---------------- */
+
+void launch(const char *command);
+/* `program` next to our own binary (installed or in the build tree), else
+ * from $PATH, as a shell-quoted command. */
+void sibling_program(const char *program, char *out, size_t size);
+uint32_t launch_feedback_begin(void);
+void launch_feedback_update(uint32_t cookie, uint32_t pid);
+void launch_feedback_cancel(uint32_t cookie);
+/* Fills the logo menu with "About", a separator and the launchable items
+ * from ~/.config/zacos9/ZacOS 9 Menu Items (or built-in defaults). */
+/* `apps` (front-most first) fill its Force Quit submenu. */
+void launch_fill_logo_menu(struct mb_menu *menu, const struct app *apps, int n_apps);
+
+/* ---- the Finder (finderlink.c) ------------------------------------------ */
+
+struct finder_state {
+	bool connected;
+	int selection, window, trash, view;
+	int label; /* the selection's common label index, or -1 */
+	int erase; /* exactly one mounted USB disk is selected */
+	int network, unmount; /* selected network/local mounted disk */
+	int sort;             /* the front list's sort column (viewoptions.h) */
+	unsigned columns;     /* and its columns shown, as bits */
+	int custom;           /* its columns were moved or resized */
+	int popup;            /* the front window is a pop-up window */
+	int popups;           /* zacos9-wm has pop-up windows */
+	int documents;        /* the selection has documents to print */
+};
+
+bool finder_connect(void);
+int finder_fd(void);          /* -1 when not connected */
+bool finder_read(void);       /* true if the state changed */
+const struct finder_state *finder_state(void);
+/* What the Sniffer sent with its last contextual menu: the Folder Tricks
+ * for what was clicked, and the Contextual Menu Items' commands. */
+#define FINDER_EXTRAS 32
+struct finder_extras {
+	bool can_trick;               /* a folder that tricks attach to */
+	char *attached[FINDER_EXTRAS]; /* tricks attached to it */
+	int n_attached;
+	char *available[FINDER_EXTRAS]; /* the Folder Tricks folder's */
+	int n_available;
+	char *commands[FINDER_EXTRAS];
+	int n_commands;
+};
+const struct finder_extras *finder_extras(void);
+void finder_send(const char *command);
+
+/* A Sniffer contextual menu ("icon", "disk", "trash", "window", "desktop"),
+ * from the Sniffer's state; empty when there is nothing to offer. */
+void menus_context(struct mb_menu *m, const char *kind);
+void menus_free_menu(struct mb_menu *m);
+/* The folder-path menu: `names` tab-separated, the window's own folder
+ * first; choosing the n-th sends "path-menu n" to the Sniffer. */
+void menus_path(struct mb_menu *m, const char *names);
+/* The Sniffer asked for one at the pointer (main.c). */
+void menubar_context_menu(const char *kind);
+void menubar_path_menu(const char *names);
+
+/* The desktop file for an app id, or NULL (toplevels.c); free it. */
+char *app_desktop_file(const char *app_id);
+/* A desktop file's Name and Exec (without field codes), or false (launch.c). */
+bool launch_read_desktop(const char *path, char **name, char **exec);
+
+/* ---- Recent items (recent.c) ----------------------------------------------- */
+
+/* A program's window appeared: it goes to the front of Recent Applications. */
+void recent_app_seen(const char *app_id);
+/* The Zac menu's Recent Applications, Recent Documents and Recent Servers,
+ * as many as Zac Menu Options says (desktop.conf recent-*, 10 by default;
+ * 0 leaves one out). */
+void recent_fill_menu(struct mb_menu *menu);
+
+/* ---- Log Out (logout.c) --------------------------------------------------- */
+
+/* The Sniffer asked, and the user said Log Out: quit the programs. */
+void logout_begin(void);
+/* -1, or how soon (ms) logout_tick wants to run again. */
+int logout_poll_timeout(void);
+/* Ends the session once the programs are gone, or gives up. */
+void logout_tick(void);
+
+/* ---- keystrokes for Edit commands (keys.c) -------------------------------- */
+
+void keys_init(struct zwp_virtual_keyboard_manager_v1 *mgr, struct wl_seat *seat);
+bool keys_available(void);
+void keys_send_command(char key); /* ⌘key, delivered as Ctrl+key */
+void keys_send_clear(void);       /* Clear = Delete */
+
+/* ---- the logo (logo.c) --------------------------------------------------- */
+
+/* The logo comes from lib/logo.h. */
+#include "logo.h"
+
+/* ---- app-wide state (main.c) ---------------------------------------------- */
+
+struct wl_seat *menubar_seat(void);
+/* Called when the set of apps or the front app changes. */
+void menubar_apps_changed(void);
+/* Ask zacos9-wm to use keyboard layout `index`. */
+void menubar_set_keyboard_layout(int index);
+
+/* ---- the keyboard menu (kbmenu.c) ---------------------------------------- */
+
+/* zacos9-wm's keyboard_layouts: "code TAB name" lines, and the one in use. */
+void kbmenu_set(const char *layouts, uint32_t current);
+/* The menu's title for a layout: "US", "US-DV". */
+void kbmenu_abbrev(const char *code, const char *name, char *out, size_t size);
+/* Adds the keyboard menu, if more than one layout is in use. */
+void kbmenu_add(struct mb_menu *menus, int *n);
+
+/* hints.c: Hint Bubbles over the menu bar's menus. */
+#define HINT_TAIL_W 12 /* the tail's length */
+#define HINT_TAIL_H 6
+#define HINT_TIP_Y 6   /* the tail's tip, from the bubble's top */
+/* The item's hint, or NULL (programs' own menu items have none). */
+const char *hint_text(const struct mb_item *it, char *buf, size_t n);
+/* A bubble with the text wrapped in it, the tail's tip at (0, HINT_TIP_Y),
+ * or at the right edge if tail_right. Free with free(). With `log`, its
+ * text is also logged there (pl_text_log_free it), to be drawn again at a
+ * fractional scale. */
+uint32_t *hint_paint(const char *text, bool tail_right, int *w, int *h, struct pl_text_log **log);
+
+#endif

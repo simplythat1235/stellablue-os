@@ -1,0 +1,213 @@
+# The boot splash. At boot: Happy Zac on white, as GRUB showed it, then the
+# Welcome to Zacintosh box over the desktop pattern - drawn ahead of time by
+# the compositor's own code (boot/make-splash.c) - with each extension's
+# icon added along the bottom as its kernel module loads (boot/zacos9-parade
+# sends "zacos9-ext:INDEX"). The compositor's own Welcome screen takes over
+# from this frame (compositor/src/startup.c, boot/zacos9-boot-handoff), so
+# the positions here are the same as there (lib/welcome.h). Shutting down:
+# Happy Zac and a bar. Every display gets its own complete, centred copy.
+Window.SetBackgroundTopColor(1, 1, 1);
+Window.SetBackgroundBottomColor(1, 1, 1);
+
+box_image = Image("progress-box.png");
+fill_source = Image("progress-fill.png");
+fill_inner = box_image.GetWidth() - 4;
+progress_width = 0;
+password_image = NULL;
+screens = [];
+screen_count = 0;
+
+# The startup screen: the 1984 Macintosh's 512x342 screen, scaled by a whole
+# number for each display (lib/welcome.h), with pictures for each scale.
+SCREEN_W = 512;
+SCREEN_H = 342;
+MAX_SCALE = 6;
+BOX_X = 32;
+BOX_Y = 64;
+BOX_H = 126;
+SHADOW = 2;
+ICON_SIZE = 32;
+happy_images = [];
+welcome_images = [];
+for (n = 1; n <= MAX_SCALE; n++) {
+  happy_images[n] = Image("happy-zac-" + n + "x.png");
+  welcome_images[n] = Image("welcome-" + n + "x.png");
+}
+pattern_image = Image("pattern.png");
+parade_sheet = Image("parade.png");
+LOGO_SECONDS = 0.5;
+ICON = 32;
+ICON_STEP = 40;
+ICON_LEFT = 16;
+ICON_BOTTOM = 12;
+
+boot = Plymouth.GetMode() == "boot";
+welcome = 0;
+parade = [];
+parade_count = 0;
+
+fun scale_for(width, height) {
+  sc = Math.Int(width / SCREEN_W);
+  if (Math.Int(height / SCREEN_H) < sc)
+    sc = Math.Int(height / SCREEN_H);
+  if (sc > MAX_SCALE)
+    sc = MAX_SCALE;
+  if (sc < 1)
+    sc = 1;
+  return sc;
+}
+
+fun parade_slot(width, height, i) {
+  per_row = Math.Int((width - 2 * ICON_LEFT + ICON_STEP - ICON) / ICON_STEP);
+  if (per_row < 1)
+    per_row = 1;
+  slot.x = ICON_LEFT + (i % per_row) * ICON_STEP;
+  slot.y = height - ICON - ICON_BOTTOM - Math.Int(i / per_row) * ICON_STEP;
+  return slot;
+}
+
+fun show(sprite, visible) {
+  if (visible)
+    sprite.SetOpacity(1);
+  else
+    sprite.SetOpacity(0);
+}
+
+fun refresh_callback() {
+  x = 0;
+  count = 0;
+  for (i = 0; Window.GetWidth(i) != NULL; i++) {
+    width = Window.GetWidth(i);
+    height = Window.GetHeight(i);
+    # Separate the script viewports so sprites for unequal displays never overlap.
+    Window.SetX(i, x);
+    Window.SetY(i, 0);
+    if (screens[i] == NULL) {
+      screens[i].logo = Sprite();
+      screens[i].box = Sprite(box_image);
+      screens[i].fill = Sprite();
+      screens[i].password = Sprite();
+      screens[i].shown = -1;
+      screens[i].pattern = Sprite();
+      screens[i].welcome = Sprite();
+      screens[i].scale = -1;
+      screens[i].icons = [];
+      screens[i].icon_count = 0;
+      screens[i].pattern_w = -1;
+      screens[i].pattern_h = -1;
+    }
+    s = screens[i];
+    cx = x + Math.Int(width / 2);
+    sc = scale_for(width, height);
+    if (s.scale != sc) {
+      s.logo.SetImage(happy_images[sc]);
+      s.welcome.SetImage(welcome_images[sc]);
+      s.scale = sc;
+    }
+
+    # Happy Zac, and when shutting down a bar under it.
+    size = ICON_SIZE * sc;
+    logo_x = x + Math.Int((width - size) / 2);
+    logo_y = Math.Int((height - size) / 2);
+    box_x = cx - Math.Int(box_image.GetWidth() / 2);
+    box_y = logo_y + size + 40;
+    s.logo.SetPosition(logo_x, logo_y, 0);
+    s.box.SetPosition(box_x, box_y, 1);
+    s.fill.SetPosition(box_x + 2, box_y + 2, 2);
+    if (s.shown != progress_width) {
+      if (progress_width > 0)
+        s.fill.SetImage(fill_source.Scale(progress_width, fill_source.GetHeight()));
+      s.shown = progress_width;
+    }
+    show(s.logo, !welcome);
+    show(s.box, !boot);
+    show(s.fill, !boot && progress_width > 0);
+
+    # The Welcome screen.
+    if (s.pattern_w != width || s.pattern_h != height) {
+      s.pattern.SetImage(pattern_image.Tile(width, height));
+      s.pattern_w = width;
+      s.pattern_h = height;
+    }
+    s.pattern.SetPosition(x, 0, 10);
+    wx = x + Math.Int((width - SCREEN_W * sc) / 2) + BOX_X * sc;
+    wy = Math.Int((height - SCREEN_H * sc) / 2) + BOX_Y * sc;
+    s.welcome.SetPosition(wx, wy, 11);
+    for (j = s.icon_count; j < parade_count; j++)
+      s.icons[j] = Sprite(parade[j]);
+    s.icon_count = parade_count;
+    for (j = 0; j < s.icon_count; j++) {
+      slot = parade_slot(width, height, j);
+      s.icons[j].SetPosition(x + slot.x, slot.y, 12);
+      show(s.icons[j], welcome);
+    }
+    show(s.pattern, welcome);
+    show(s.welcome, welcome);
+
+    s.password.SetImage(password_image);
+    if (password_image != NULL) {
+      if (welcome)
+        s.password.SetPosition(cx - Math.Int(password_image.GetWidth() / 2),
+                               wy + (BOX_H + SHADOW) * sc + 16, 20);
+      else
+        s.password.SetPosition(cx - Math.Int(password_image.GetWidth() / 2), box_y + 30, 20);
+    }
+    screens[i] = s;
+    x += width;
+    count++;
+  }
+  for (i = count; i < screen_count; i++)
+    screens[i] = NULL;
+  screen_count = count;
+}
+Plymouth.SetRefreshFunction(refresh_callback);
+refresh_callback();
+
+fun boot_progress_callback(duration, progress) {
+  w = Math.Int(progress * fill_inner);
+  if (w > fill_inner)
+    w = fill_inner;
+  if (w > progress_width)
+    progress_width = w;
+  if (boot && duration >= LOGO_SECONDS)
+    welcome = 1;
+}
+Plymouth.SetBootProgressFunction(boot_progress_callback);
+
+# "zacos9-ext:INDEX": the extension at INDEX in lib/extensions.c has loaded.
+fun update_status_callback(status) {
+  prefix = "zacos9-ext:";
+  if (status.SubString(0, prefix.Length()) != prefix)
+    return;
+  digits = "0123456789";
+  index = 0;
+  for (k = prefix.Length(); k < status.Length(); k++) {
+    d = -1;
+    for (v = 0; v < 10; v++)
+      if (status.CharAt(k) == digits.CharAt(v))
+        d = v;
+    if (d < 0)
+      return;
+    index = index * 10 + d;
+  }
+  if ((index + 1) * ICON > parade_sheet.GetWidth())
+    return;
+  parade[parade_count] = parade_sheet.Crop(index * ICON, 0, ICON, ICON);
+  parade_count++;
+  if (boot)
+    welcome = 1;
+  refresh_callback();
+}
+Plymouth.SetUpdateStatusFunction(update_status_callback);
+
+fun display_password_callback(prompt, bullets) {
+  password_image = Image.Text(prompt + "  " + bullets, 0, 0, 0);
+  refresh_callback();
+}
+Plymouth.SetDisplayPasswordFunction(display_password_callback);
+
+fun display_normal_callback() {
+  password_image = NULL;
+  refresh_callback();
+}
+Plymouth.SetDisplayNormalFunction(display_normal_callback);

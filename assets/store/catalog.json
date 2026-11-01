@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "categories": ["Featured", "Internet", "Graphics", "Productivity", "Multimedia", "Games", "Utilities", "Extras"],
+  "items": [
+    { "id": "firefox", "name": "Firefox", "category": "Internet", "featured": true,
+      "blurb": "Browse the web.", "packages": ["firefox-esr"] },
+    { "id": "thunderbird", "name": "Thunderbird", "category": "Internet",
+      "blurb": "Read and send email.", "packages": ["thunderbird"] },
+    { "id": "filezilla", "name": "FileZilla", "category": "Internet",
+      "blurb": "Transfer files by FTP and SFTP.", "packages": ["filezilla"] },
+    { "id": "transmission", "name": "Transmission", "category": "Internet",
+      "blurb": "Download files by BitTorrent.", "packages": ["transmission-gtk"] },
+
+    { "id": "gimp", "name": "GIMP", "category": "Graphics", "featured": true,
+      "blurb": "Edit and retouch photographs.", "packages": ["gimp"],
+      "style": { "id": "gimp-photoshop", "label": "Photoshop Layout", "reset": "Standard Layout",
+        "blurb": "Photoshop Layout arranges GIMP's tools, panels and shortcuts like Photoshop's (PhotoGIMP by Diolinux, GPL-3.0). Quit GIMP before switching; Standard Layout puts your own settings back." } },
+    { "id": "inkscape", "name": "Inkscape", "category": "Graphics",
+      "blurb": "Draw vector illustrations.", "packages": ["inkscape"],
+      "style": { "id": "inkscape-illustrator", "label": "Illustrator Layout", "reset": "Standard Layout",
+                 "blurb": "Illustrator Layout switches Inkscape to Illustrator-style keyboard shortcuts: V to select, A for nodes, P for the pen, T for text, M and L for shapes." } },
+    { "id": "krita", "name": "Krita", "category": "Graphics",
+      "blurb": "Paint and illustrate.", "packages": ["krita"] },
+    { "id": "shotwell", "name": "Shotwell", "category": "Graphics",
+      "blurb": "Organize and touch up your photographs.", "packages": ["shotwell"] },
+
+    { "id": "libreoffice", "name": "LibreOffice", "category": "Productivity", "featured": true,
+      "blurb": "Write, calculate and present.", "packages": ["libreoffice", "libreoffice-gtk3"] },
+    { "id": "gnucash", "name": "GnuCash", "category": "Productivity",
+      "blurb": "Keep track of your money.", "packages": ["gnucash"] },
+
+    { "id": "vlc", "name": "VLC", "category": "Multimedia", "featured": true,
+      "blurb": "Play almost any video or sound file.", "packages": ["vlc"] },
+    { "id": "audacity", "name": "Audacity", "category": "Multimedia",
+      "blurb": "Record and edit sound.", "packages": ["audacity"] },
+    { "id": "mpv", "name": "mpv", "category": "Multimedia",
+      "blurb": "A simple, fast movie player.", "packages": ["mpv"] },
+
+    { "id": "mines", "name": "Mines", "category": "Games",
+      "blurb": "Find the mines without digging one up.", "packages": ["gnome-mines"] },
+    { "id": "sudoku", "name": "Sudoku", "category": "Games",
+      "blurb": "Number puzzles, four difficulties.", "packages": ["gnome-sudoku"] },
+    { "id": "solitaire", "name": "Solitaire", "category": "Games",
+      "blurb": "A deck of card games.", "packages": ["aisleriot"] },
+    { "id": "quadrapassel", "name": "Quadrapassel", "category": "Games",
+      "blurb": "Falling blocks; don't let them reach the top.", "packages": ["quadrapassel"] },
+
+    { "id": "simplescan", "name": "Simple Scan", "category": "Utilities",
+      "blurb": "Scan documents and photographs.", "packages": ["simple-scan"] },
+    { "id": "archiveutility", "name": "Archive Utility", "category": "Utilities",
+      "blurb": "Open and make Zip and other archives.", "packages": ["xarchiver"] },
+    { "id": "calculator", "name": "Calculator", "category": "Utilities",
+      "blurb": "A desk calculator.", "packages": ["galculator"] },
+
+    { "id": "extra-hue", "name": "Hue Lights", "category": "Extras",
+      "blurb": "Philips Hue lights in The Collar: turn the rooms you choose on and off, set their brightness and pick their scenes. Press the bridge's link button, then choose Connect from the Hue module.",
+      "packages": ["zacos9-extra-hue"], "extra": { "id": "hue", "start": "zacos9-collar-hue" } },
+
+    { "id": "extra-turntable", "name": "Turntable", "category": "Extras",
+      "blurb": "Listen to a USB turntable through your speakers or TV, switched on and off from The Collar. Plug the turntable in, then choose On from the Turntable module. Left on, it plays again whenever the turntable is plugged in.",
+      "packages": ["zacos9-extra-turntable"], "extra": { "id": "turntable", "start": "zacos9-collar-turntable" } },
+
+    { "id": "extra-phone", "name": "Phone", "category": "Extras",
+      "blurb": "KDE Connect and Syncthing for your phone: notifications, file sharing, clipboard and photo sync. Installs KDE Connect and Syncthing; Syncthing's web interface opens the first time to pair the phone.",
+      "packages": ["zacos9-extra-phone"], "extra": { "id": "phone", "start": "zacos9-extra-phone" } },
+
+    { "id": "extra-nightmode", "name": "Night Mode", "category": "Extras",
+      "blurb": "Warmer screen colour for the evening, switched on and off from The Collar. Uses gammastep to set the monitor's colour temperature.",
+      "packages": ["zacos9-extra-nightmode"], "extra": { "id": "nightmode", "start": "zacos9-collar-nightmode" } },
+
+    { "id": "extra-gameplayer", "name": "Game Player", "category": "Extras",
+      "blurb": "Play NES, Super NES, Sega, Game Boy, Game Boy Advance, PlayStation and Nintendo 64 cartridges and discs in ZacOS 9: double-click a game file in the Sniffer and it runs in a Platinum-framed window, with a Game Player module in The Collar to quit it. The engines are RetroArch, mednafen and mupen64plus; PlayStation needs a Sony BIOS and Nintendo 64 needs firmware, which you supply.",
+      "packages": ["zacos9-extra-gameplayer"], "extra": { "id": "gameplayer", "start": "zacos9-gameplayer" } },
+    { "id": "extra-steam", "name": "Steam", "category": "Extras",
+      "blurb": "List and launch your installed Steam games from The Collar. Installs Steam if it is not already present.",
+      "packages": ["zacos9-extra-steam"], "extra": { "id": "steam", "start": "zacos9-steam" } }
+  ]
+}

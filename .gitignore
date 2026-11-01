@@ -1,0 +1,29 @@
+build/
+.cache/
+compile_commands.json
+*.o
+*.so
+
+# Editors' own settings, which name this machine's paths.
+.vscode/
+
+# User-supplied Apple files: never commit.
+emulation/roms/
+emulation/disks/
+/macos/
+*.ROM
+*.rom
+
+# Downloaded reference material (Apple-copyrighted): measure locally, never commit.
+tools/measure/hig-os8.pdf
+tools/measure/figs/
+tools/measure/hig.txt
+/core.*
+/uploads/
+/Uploads/
+/upload assets/
+__pycache__/
+
+# Local compatibility archive: never package third-party theme assets.
+/tests/fixtures/themes/Appearance_Themes.sit
+hardware/intel-graphics/setos.efi

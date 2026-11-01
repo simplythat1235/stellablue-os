@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Monitors
+Comment=Screen resolution and pixel size
+Exec=zacos9-controlpanel monitors
+Categories=Settings;HardwareSettings;X-ZacOS9-ControlPanel;
+OnlyShowIn=ZacOS9;

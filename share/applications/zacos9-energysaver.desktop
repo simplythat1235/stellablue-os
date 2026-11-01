@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Nap Time
+Comment=When the display and the system go to sleep
+Exec=zacos9-controlpanel energysaver
+Categories=Settings;HardwareSettings;X-ZacOS9-ControlPanel;
+OnlyShowIn=ZacOS9;

@@ -1,0 +1,363 @@
+#include <QApplication>
+#include <QCryptographicHash>
+#include <QDir>
+#include <QElapsedTimer>
+#include <QFile>
+#include <QImage>
+#include <QKeyEvent>
+#include <QMouseEvent>
+#include <QProcess>
+#include <QTemporaryDir>
+#include <QThread>
+#include <QTimer>
+#include <QUrl>
+#include <QWidget>
+#include <cassert>
+#include <functional>
+#include <memory>
+#include <vector>
+
+#include "panelkit.h"
+#include "storeclient.h"
+#define private public
+#include "store.h"
+#undef private
+
+static void writeFile(const QString &path, const QByteArray &data, bool executable = false) {
+	QFile file(path);
+	assert(file.open(QIODevice::WriteOnly));
+	assert(file.write(data) == data.size());
+	file.close();
+	if (executable) {
+		assert(file.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+	}
+}
+
+static bool waitFor(const std::function<bool()> &condition) {
+	QElapsedTimer timer;
+	timer.start();
+	while (!condition() && timer.elapsed() < 5000) {
+		QApplication::processEvents();
+		QThread::msleep(5);
+	}
+	return condition();
+}
+
+static void confirm() {
+	QTimer::singleShot(0, [] {
+		QWidget *dialog = QApplication::activeModalWidget();
+		assert(dialog);
+		QKeyEvent key(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+		QApplication::sendEvent(dialog, &key);
+	});
+}
+
+int main(int argc, char **argv) {
+	QTemporaryDir root;
+	assert(root.isValid());
+	qputenv("HOME", root.path().toUtf8());
+	qputenv("XDG_CONFIG_HOME", (root.path() + "/config").toUtf8());
+	qputenv("XDG_DATA_HOME", (root.path() + "/data").toUtf8());
+	qputenv("TEST_STATE", root.path().toUtf8());
+	qputenv("PATH", (root.path() + ":/usr/bin:/bin").toUtf8());
+	QApplication app(argc, argv);
+	const QString catalog = root.path() + "/catalog.json";
+	writeFile(catalog, R"JSON({"categories":["Featured","Internet","Graphics"],
+		"items":[{"id":"curated","name":"Curated Browser","category":"Internet",
+		"blurb":"Web browser","packages":["browser"],"featured":true}]})JSON");
+	qputenv("ZACOS9_STORE_CATALOG", catalog.toUtf8());
+	const QString apt = root.path() + "/apt-helper";
+	writeFile(apt, "#!/bin/sh\nprintf '%s\\tno\\n' \"$2\"\n", true);
+	qputenv("ZACOS9_APPSTORE_HELPER", apt.toUtf8());
+	QImage icon(64, 64, QImage::Format_ARGB32);
+	icon.fill(0xff12ab34);
+	assert(icon.save(root.path() + "/paint.png"));
+	const QString discovery = root.path() + "/discovery";
+	writeFile(discovery, R"PY(#!/usr/bin/python3
+import json, os, sys
+if os.getenv("TEST_BAD") == "1":
+    print("broken")
+elif sys.argv[1] == "debian":
+    print(json.dumps({"items":[{"id":"org.example.Editor","name":"Debian Editor",
+        "blurb":"Edit photos","packages":["editor"],"source":"debian"}]}))
+else:
+    print(json.dumps({"items":[{"id":"org.example.Paint","name":"Flatpak Paint",
+        "blurb":"Draw pictures","category":"Graphics",
+        "icon":os.environ["TEST_STATE"] + "/paint.png",
+        "packages":["org.example.Paint"],"source":"flathub"}]}))
+)PY", true);
+	qputenv("ZACOS9_SOFTWARE_CATALOG_HELPER", discovery.toUtf8());
+	writeFile(root.path() + "/flatpak", R"PY(#!/usr/bin/python3
+import os, pathlib, sys
+root = pathlib.Path(os.environ["TEST_STATE"])
+args = sys.argv[1:]
+with (root / "calls").open("a") as log:
+    log.write(" ".join(args) + "\n")
+assert args[0] == "--user"
+command = args[1]
+enabled = root / "enabled"
+installed = root / "installed"
+if command == "remote-list":
+    assert "--show-disabled" in args
+    if enabled.exists():
+        mode = os.getenv("TEST_REMOTE_MODE", "")
+        url = "https://wrong.example/repo/" if mode == "untrusted" else "https://dl.flathub.org/repo/"
+        options = "disabled" if mode == "disabled" else ""
+        if mode == "omitted-options":
+            print(f"flathub\t{url}")
+        else:
+            print(f"flathub\t{url}\t{options}")
+elif command == "remote-add":
+    enabled.touch()
+elif command == "remote-modify":
+    if "--disable" in args:
+        enabled.unlink()
+    else:
+        enabled.touch()
+elif command == "list":
+    if installed.exists():
+        print("org.example.Paint")
+elif command == "install":
+    if os.getenv("TEST_INSTALL_FAIL") == "1":
+        print("Mock installation failed", file=sys.stderr)
+        sys.exit(1)
+    installed.touch()
+elif command == "uninstall":
+    installed.unlink()
+else:
+    sys.exit(2)
+)PY", true);
+
+	std::vector<StoreItem> parsed;
+	QString error;
+	assert(!parseSoftwareCatalog("[]", "debian", &parsed, &error));
+	assert(!parseSoftwareCatalog(R"JSON({"items":[{"id":"bad","name":"Bad",
+		"source":"debian","packages":["--remove"]}]})JSON", "debian", &parsed, &error));
+	assert(!parseSoftwareCatalog(R"JSON({"items":[{"id":"bad","name":"Bad",
+		"source":"flathub","packages":["org.example.Paint;bad"]}]})JSON", "flathub", &parsed, &error));
+	assert(!parseSoftwareCatalog(R"JSON({"items":[{"id":"bad","name":"Bad",
+		"source":"flathub","category":"Arbitrary","packages":["org.example.Paint"]}]})JSON",
+		"flathub", &parsed, &error));
+	assert(!parseSoftwareCatalog(R"JSON({"items":[{"id":"bad","name":"Bad",
+		"source":"flathub","icon":"relative.png","packages":["org.example.Paint"]}]})JSON",
+		"flathub", &parsed, &error));
+
+	StoreWindow window;
+	window.show();
+	assert(window.currentItem()->name == "Curated Browser");
+	assert(window.m_includeFlathub.on);
+	auto select = [&](const QString &name) {
+		window.m_categoryList.select(window.m_categories.indexOf(name), true);
+	};
+	select("All Applications");
+	assert(waitFor([&] { return !window.m_busy; }));
+	assert(window.m_debianLoaded && window.m_shown.size() == 2);
+	const QPoint field = window.m_search.rect.center();
+	QMouseEvent press(QEvent::MouseButtonPress, field, window.mapToGlobal(field),
+		Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+	QApplication::sendEvent(&window, &press);
+	assert(window.m_host.focus == &window.m_search);
+	for (QChar letter : QString("photos")) {
+		QKeyEvent key(QEvent::KeyPress, letter.toUpper().unicode(), Qt::NoModifier, QString(letter));
+		QApplication::sendEvent(&window, &key);
+	}
+	assert(window.m_shown.size() == 1 && window.currentItem()->name == "Debian Editor");
+	window.m_search.setText("");
+	window.m_search.edited();
+	select("Featured");
+	assert(window.m_shown.size() == 1 && window.currentItem()->name == "Curated Browser");
+	select("Flathub");
+	assert(window.m_shown.empty() && window.m_status.contains("Enable Flathub"));
+	select("Additional Sources");
+	assert(!window.m_flathubEnabled && !QFile::exists(root.path() + "/enabled"));
+	QTimer::singleShot(0, [] {
+		QWidget *dialog = QApplication::activeModalWidget();
+		assert(dialog);
+		QKeyEvent key(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+		QApplication::sendEvent(dialog, &key);
+	});
+	window.configureSource();
+	assert(!QFile::exists(root.path() + "/enabled"));
+	confirm();
+	window.configureSource();
+	assert(window.m_flathubEnabled && QFile::exists(root.path() + "/enabled"));
+	bool remoteOk;
+	qputenv("TEST_REMOTE_MODE", "omitted-options");
+	assert(flathubEnabled(&remoteOk, &error) && remoteOk);
+	qputenv("TEST_REMOTE_MODE", "disabled");
+	assert(!flathubEnabled(&remoteOk, &error) && remoteOk);
+	qputenv("TEST_REMOTE_MODE", "untrusted");
+	assert(!flathubEnabled(&remoteOk, &error) && !remoteOk && error.contains("official"));
+	qunsetenv("TEST_REMOTE_MODE");
+	select("Flathub");
+	assert(waitFor([&] { return !window.m_busy; }));
+	assert(window.m_shown.size() == 1 && window.currentItem()->source == "flathub");
+	assert(window.currentItem()->blurb == "Draw pictures");
+	assert(window.m_catalogIcon.size() == 32 * 32);
+	assert(window.m_catalogIcon.front() == 0xff12ab34);
+	select("Graphics");
+	assert(window.m_shown.size() == 1 && window.currentItem()->name == "Flatpak Paint");
+	select("All Applications");
+	assert(window.m_shown.size() == 3);
+	auto toggle = [&] {
+		const QPoint pos = window.m_includeFlathub.hitRect().center();
+		QMouseEvent down(QEvent::MouseButtonPress, pos, window.mapToGlobal(pos),
+			Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+		QMouseEvent up(QEvent::MouseButtonRelease, pos, window.mapToGlobal(pos),
+			Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+		QApplication::sendEvent(&window, &down);
+		QApplication::sendEvent(&window, &up);
+	};
+	toggle();
+	assert(!window.m_includeFlathub.on && window.m_shown.size() == 2);
+	assert(QFile::exists(root.path() + "/enabled"));
+	{
+		StoreWindow reopened;
+		assert(!reopened.m_includeFlathub.on && !reopened.m_busy);
+		reopened.m_categoryList.select(reopened.m_categories.indexOf("Graphics"), true);
+		assert(reopened.m_shown.empty());
+	}
+	select("Graphics");
+	assert(window.m_shown.empty());
+	toggle();
+	assert(window.m_includeFlathub.on && window.m_shown.size() == 1);
+	{
+		StoreWindow reopened;
+		assert(reopened.m_includeFlathub.on);
+		/* Featured is curated: opening the window never waits on Flathub. */
+		assert(!reopened.m_busy && !reopened.m_flathubLoaded);
+		reopened.m_categoryList.select(reopened.m_categories.indexOf("Graphics"), true);
+		assert(waitFor([&] { return !reopened.m_busy; }));
+		assert(reopened.m_flathubLoaded);
+		assert(reopened.m_shown.size() == 1 && reopened.m_catalogIcon.size() == 32 * 32);
+		reopened.m_categoryList.select(reopened.m_categories.indexOf("All Applications"), true);
+		assert(waitFor([&] { return !reopened.m_busy; }));
+		assert(reopened.m_shown.size() == 3);
+		reopened.m_categoryList.select(reopened.m_categories.indexOf("Additional Sources"), true);
+		reopened.m_refreshButton.clicked();
+		assert(waitFor([&] { return !reopened.m_busy; }));
+		assert(reopened.m_flathubLoaded && reopened.m_debianLoaded);
+		reopened.m_categoryList.select(reopened.m_categories.indexOf("Graphics"), true);
+		assert(reopened.m_shown.size() == 1);
+	}
+	window.m_search.setText("pictures");
+	window.m_search.edited();
+	assert(window.m_shown.size() == 1);
+	window.m_search.setText("no match");
+	window.m_search.edited();
+	assert(window.m_shown.empty());
+	window.m_search.setText("");
+	window.m_search.edited();
+	window.loadSource("flathub");
+	assert(waitFor([&] { return !window.m_busy; }));
+	assert(window.m_shown.size() == 1);
+	qputenv("TEST_BAD", "1");
+	window.loadSource("flathub");
+	assert(waitFor([&] { return !window.m_busy; }));
+	assert(window.m_status.contains("Invalid software catalog"));
+	assert(window.m_shown.size() == 1 && window.m_catalogIcon.size() == 32 * 32);
+	qunsetenv("TEST_BAD");
+	select("Flathub");
+	qputenv("TEST_INSTALL_FAIL", "1");
+	window.act();
+	assert(window.m_status == "Mock installation failed" && !window.m_installed);
+	qunsetenv("TEST_INSTALL_FAIL");
+	window.act();
+	assert(window.m_installed && QFile::exists(root.path() + "/installed"));
+	confirm();
+	window.act();
+	assert(!window.m_installed && !QFile::exists(root.path() + "/installed"));
+	select("Additional Sources");
+	confirm();
+	window.configureSource();
+	assert(!window.m_flathubEnabled && !QFile::exists(root.path() + "/enabled"));
+	select("Flathub");
+	assert(window.m_shown.empty());
+	select("All Applications");
+	qputenv("TEST_BAD", "1");
+	window.loadSource("debian");
+	assert(waitFor([&] { return !window.m_busy; }));
+	assert(window.m_status.contains("Invalid software catalog"));
+	assert(window.m_shown.size() == 2);
+	qunsetenv("TEST_BAD");
+	qputenv("ZACOS9_SOFTWARE_CATALOG_HELPER", "/nonexistent/software-catalog");
+	window.loadSource("debian");
+	assert(waitFor([&] { return !window.m_busy; }));
+	assert(!window.m_status.isEmpty() && window.m_shown.size() == 2);
+	QFile calls(root.path() + "/calls");
+	assert(calls.open(QIODevice::ReadOnly));
+	const QByteArray log = calls.readAll();
+	assert(log.contains("--user install --noninteractive flathub org.example.Paint"));
+	assert(log.contains("--user uninstall --noninteractive -- org.example.Paint"));
+	assert(log.contains("https://dl.flathub.org/repo/flathub.flatpakrepo"));
+
+	/* ZacOS extras: the newest release's .deb, checked, through install-deb. */
+	const QString extrasCatalog = root.path() + "/extras.json";
+	writeFile(extrasCatalog, R"JSON({"categories":["Featured","Extras"],
+		"items":[{"id":"extra-hue","name":"Hue Lights","category":"Extras","blurb":"Lights",
+		"packages":["zacos9-extra-hue"],"extra":{"id":"hue","start":"zacos9-collar-hue"}}]})JSON");
+	qputenv("ZACOS9_STORE_CATALOG", extrasCatalog.toUtf8());
+	writeFile(apt, R"PY(#!/usr/bin/python3
+import os, pathlib, sys
+root = pathlib.Path(os.environ["TEST_STATE"])
+args = sys.argv[1:]
+with (root / "helper-calls").open("a") as log:
+    log.write(" ".join(args) + "\n")
+if args[0] == "installed":
+    for p in args[1:]:
+        print(p + "\t" + ("yes" if (root / ("inst-" + p)).exists() else "no"))
+elif args[0] == "install-deb":
+    assert os.path.isabs(args[1]) and pathlib.Path(args[1]).read_bytes() == b"pretend deb"
+    (root / "inst-zacos9-extra-hue").touch()
+elif args[0] == "remove":
+    (root / ("inst-" + args[1])).unlink()
+)PY", true);
+	/* As root, the helper runs through pkexec: here, without asking anyone. */
+	writeFile(root.path() + "/pkexec", "#!/bin/sh\nexec \"$@\"\n", true);
+	writeFile(root.path() + "/dpkg-deb", "#!/bin/sh\necho \"${TEST_PACKAGE:-zacos9-extra-hue}\"\n", true);
+	writeFile(root.path() + "/zacos9-collar-hue", "#!/bin/sh\ntouch \"$TEST_STATE/started\"\n", true);
+	writeFile(root.path() + "/hue.deb", "pretend deb");
+	const QString digest = QCryptographicHash::hash("pretend deb", QCryptographicHash::Sha256).toHex();
+	const QString arch = [] {
+		QProcess p;
+		p.start("dpkg", { "--print-architecture" });
+		waitFor([&] { return p.state() == QProcess::NotRunning; }); /* never waitForFinished: CLAUDE.md */
+		return QString::fromUtf8(p.readAllStandardOutput()).trimmed();
+	}();
+	auto releases = [&](const QString &sha) {
+		writeFile(root.path() + "/releases.json", QString(R"JSON([
+			{"tag_name":"other-v2.0","assets":[]},
+			{"tag_name":"hue-v0.2.0","assets":[{"name":"zacos9-extra-hue_0.2.0_%1.deb",
+			 "browser_download_url":"file://%2/hue.deb","digest":"sha256:%3"}]}])JSON")
+			.arg(arch, root.path(), sha).toUtf8());
+	};
+	qputenv("ZACOS9_EXTRAS_URL", QUrl::fromLocalFile(root.path() + "/releases.json").toString().toUtf8());
+	{
+		StoreWindow extras;
+		extras.m_categoryList.select(extras.m_categories.indexOf("Extras"), true);
+		assert(extras.m_shown.size() == 1 && extras.currentItem()->source == "extra");
+		assert(!extras.m_installed);
+		releases(QString(64, '0'));
+		extras.act();
+		assert(extras.m_status.contains("damaged") && !extras.m_installed);
+		releases(digest);
+		qputenv("TEST_PACKAGE", "something-else");
+		extras.act();
+		assert(extras.m_status.contains("isn’t the package") && !extras.m_installed);
+		qunsetenv("TEST_PACKAGE");
+		extras.act();
+		assert(extras.m_installed && extras.m_status.isEmpty());
+		assert(waitFor([&] { return QFile::exists(root.path() + "/started"); }));
+		confirm();
+		extras.act();
+		assert(!extras.m_installed);
+		writeFile(root.path() + "/releases.json", "[]");
+		extras.act();
+		assert(extras.m_status.contains("hasn’t been released") && !extras.m_installed);
+	}
+	QFile helperCalls(root.path() + "/helper-calls");
+	assert(helperCalls.open(QIODevice::ReadOnly));
+	const QByteArray helperLog = helperCalls.readAll();
+	assert(helperLog.count("install-deb ") == 1 && helperLog.contains("remove zacos9-extra-hue"));
+	return 0;
+}

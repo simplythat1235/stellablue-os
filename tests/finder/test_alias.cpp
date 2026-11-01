@@ -1,0 +1,257 @@
+/* Persistent aliases: rename, move, missing, replaced, loops, legacy links. */
+
+#include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QTemporaryDir>
+#include <sys/stat.h>
+#include <cstdio>
+
+#include "alias.h"
+
+static int failures = 0;
+
+static void check(bool ok, const char *what) {
+	if (!ok) {
+		std::fprintf(stderr, "FAIL: %s\n", what);
+		failures++;
+	}
+}
+
+static void touch(const QString &path, const char *text = "data") {
+	QFile f(path);
+	f.open(QIODevice::WriteOnly);
+	f.write(text);
+}
+
+static bool recordField(const QString &alias, const QByteArray &key, const QByteArray &value) {
+	const QFileInfo info(alias);
+	QFile file(info.absolutePath() + "/.alias/" + info.fileName());
+	if (!file.open(QIODevice::ReadOnly)) {
+		return false;
+	}
+	QList<QByteArray> lines = file.readAll().split('\n');
+	file.close();
+	bool found = false;
+	for (QByteArray &line : lines) {
+		if (line.startsWith(key + "=")) {
+			line = key + "=" + value;
+			found = true;
+		}
+	}
+	if (!found) {
+		lines.append(key + "=" + value);
+	}
+	if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+		return false;
+	}
+	const QByteArray data = lines.join('\n');
+	return file.write(data) == data.size();
+}
+
+static QByteArray recordContents(const QString &alias) {
+	const QFileInfo info(alias);
+	QFile file(info.absolutePath() + "/.alias/" + info.fileName());
+	if (!file.open(QIODevice::ReadOnly)) {
+		return {};
+	}
+	return file.readAll();
+}
+
+int main(int argc, char **argv) {
+	QCoreApplication app(argc, argv);
+	QTemporaryDir tmp;
+	const QString r = tmp.path();
+	QDir().mkpath(r + "/docs/sub");
+	QDir().mkpath(r + "/aliases");
+	touch(r + "/docs/report.txt");
+	QFile(r + "/docs/report.txt").setPermissions(QFile::ReadOwner | QFile::WriteOwner);
+	const QString alias = r + "/aliases/report alias";
+	QFile::link(r + "/docs/report.txt", alias);
+	check(aliasRecord(alias, r + "/docs/report.txt"), "record identity");
+	check(aliasResolve(alias).state == AliasState::Ok, "intact alias resolves");
+
+	/* Device numbers change across mounts; filesystem IDs and inodes do not. */
+	check(!recordContents(alias).contains("filesystem=\n"),
+		"test filesystem supplies a persistent identity");
+	check(recordField(alias, "dev", "18446744073709551615"), "simulate device renumbering");
+	check(aliasResolve(alias, false).state == AliasState::Ok &&
+		aliasResolve(alias).state == AliasState::Ok,
+		"device renumbering does not report an intact alias as replaced");
+	QFile::rename(r + "/docs/report.txt", r + "/docs/remounted.txt");
+	AliasResolution remounted = aliasResolve(alias);
+	check(remounted.state == AliasState::Reconnected &&
+		remounted.target == r + "/docs/remounted.txt",
+		"renamed targets reconnect after device renumbering");
+	check(QFile::rename(r + "/docs/remounted.txt", r + "/docs/report.txt") &&
+		aliasResolve(alias).state == AliasState::Reconnected,
+		"restore target after remount regression");
+
+	check(recordField(alias, "filesystem", "") &&
+		recordField(alias, "dev", "18446744073709551615"), "simulate legacy record after remount");
+	check(aliasResolve(alias, false).state == AliasState::Ok &&
+		!recordContents(alias).contains("filesystem=\n") &&
+		aliasResolve(alias).state == AliasState::Ok,
+		"legacy record migrates on use without a replacement warning");
+	check(recordField(alias, "filesystem", "") &&
+		recordField(alias, "dev", "18446744073709551615") &&
+		recordField(alias, "name", "another.txt"), "simulate unrelated legacy identity");
+	check(aliasResolve(alias, false).state == AliasState::Changed,
+		"legacy migration requires the recorded canonical path as well as inode");
+	check(aliasRecord(alias, r + "/docs/report.txt") &&
+		recordField(alias, "filesystem", "different-filesystem"),
+		"simulate another filesystem with the same device and inode");
+	check(aliasResolve(alias).state == AliasState::Changed,
+		"a different filesystem is not mistaken for the original");
+	check(aliasRecord(alias, r + "/docs/report.txt"), "restore identity after regressions");
+
+	/* A physical alias is opened through its resolved target, not as a link
+	 * or as the empty folder its broken path would otherwise create. */
+	QDir().mkpath(r + "/physical folder");
+	const QString folderAlias = r + "/aliases/folder alias";
+	QFile::link(r + "/physical folder", folderAlias);
+	check(aliasRecord(folderAlias, r + "/physical folder") &&
+		QFileInfo(aliasResolve(folderAlias).target).isDir(),
+		"physical folder aliases resolve and classify as the target folder");
+	touch(r + "/docs/example.desktop", "[Desktop Entry]\nType=Application\n");
+	const QString applicationAlias = r + "/aliases/application alias";
+	QFile::link(r + "/docs/example.desktop", applicationAlias);
+	check(aliasRecord(applicationAlias, r + "/docs/example.desktop") &&
+		aliasResolve(applicationAlias).target.endsWith(".desktop"),
+		"physical application aliases resolve to the desktop entry for application launch");
+
+	QFile::rename(r + "/docs/report.txt", r + "/docs/renamed.txt");
+	AliasResolution res = aliasResolve(alias);
+	check(res.state == AliasState::Reconnected && res.target == r + "/docs/renamed.txt",
+		"renamed target is found by inode");
+	check(QFileInfo(alias).symLinkTarget() == r + "/docs/renamed.txt", "link is repaired");
+	check((QFileInfo(r + "/docs/renamed.txt").permissions() & QFile::WriteOwner) &&
+		!(QFileInfo(r + "/docs/renamed.txt").permissions() & QFile::WriteOther),
+		"target permissions are unchanged");
+
+	QFile::rename(r + "/docs/renamed.txt", r + "/docs/sub/moved.txt");
+	res = aliasResolve(alias);
+	check(res.state == AliasState::Reconnected && res.target == r + "/docs/sub/moved.txt",
+		"moved target is found nearby");
+
+	/* An alias moved with its record keeps reconnecting. */
+	QFile::rename(alias, r + "/aliases/other");
+	aliasMoveRecord(alias, r + "/aliases/other", false);
+	QFile::rename(r + "/docs/sub/moved.txt", r + "/docs/again.txt");
+	check(aliasResolve(r + "/aliases/other").state == AliasState::Reconnected,
+		"record follows a moved alias");
+
+	/* A second alias remembers the original identity through its first alias. */
+	QFile::link(r + "/aliases/other", r + "/aliases/chain");
+	check(aliasRecord(r + "/aliases/chain", r + "/aliases/other"),
+		"chained alias records its ultimate target identity");
+	QFile::rename(r + "/docs/again.txt", r + "/docs/chained-move.txt");
+	res = aliasResolve(r + "/aliases/chain");
+	check(res.state == AliasState::Reconnected && res.target == r + "/docs/chained-move.txt",
+		"alias chains reconnect by the underlying target identity");
+	QDir().mkpath(r + "/elsewhere/a/b/c");
+	QFile::rename(r + "/docs/chained-move.txt", r + "/elsewhere/first-move.txt");
+	res = aliasResolve(r + "/aliases/chain");
+	check(res.state == AliasState::Reconnected && res.target == r + "/elsewhere/first-move.txt",
+		"reconnection updates the search origin for later moves");
+	QFile::rename(r + "/elsewhere/first-move.txt", r + "/elsewhere/a/b/c/deep-move.txt");
+	res = aliasResolve(r + "/aliases/chain");
+	check(res.state == AliasState::Reconnected &&
+		res.target == r + "/elsewhere/a/b/c/deep-move.txt",
+		"updated target identity finds subsequent moves within the bounded search");
+	QFile::rename(r + "/elsewhere/a/b/c/deep-move.txt", r + "/docs/again.txt");
+
+	/* Deleted: broken, never recreated. */
+	QFile::remove(r + "/docs/again.txt");
+	check(aliasResolve(r + "/aliases/other").state == AliasState::Missing, "deleted target is Missing");
+	check(!QFileInfo::exists(r + "/docs/again.txt"), "missing target is not recreated");
+
+	/* A new file at the old path is the original replaced (a save, a
+	 * package upgrade): Mac OS 9 fell back to the path too. */
+	touch(r + "/docs/again.txt", "new");
+	res = aliasResolve(r + "/aliases/other");
+	check(res.state == AliasState::Ok && res.target == r + "/docs/again.txt",
+		"a replaced original at its path is accepted");
+	check(QFileInfo(r + "/aliases/other").symLinkTarget() == r + "/docs/again.txt" &&
+		aliasResolve(r + "/aliases/other", false).state == AliasState::Ok, "and remembered as the original");
+
+	/* Its old inode number reused by something else nearby (the MIME
+	 * database's files, after an upgrade replaced three programs' desktop
+	 * entries): never taken for the original. */
+	touch(r + "/docs/decoy");
+	{
+		struct stat decoy;
+		stat(QFile::encodeName(r + "/docs/decoy").constData(), &decoy);
+		/* tmpfs's clock is coarse, so files made a moment apart can share
+		 * a birth time: the original's is set to one no file here has. */
+		check(recordField(r + "/aliases/other", "ino", QByteArray::number(quint64(decoy.st_ino))) &&
+			recordField(r + "/aliases/other", "birth", "1000000000.5"),
+			"simulate the original's inode number given to another file");
+	}
+	QFile::remove(r + "/docs/again.txt");
+	res = aliasResolve(r + "/aliases/other");
+	check(res.state == AliasState::Missing && QFileInfo(r + "/aliases/other").symLinkTarget() == r + "/docs/again.txt",
+		"a reused inode number with another birth time isn't the original");
+	touch(r + "/docs/again.txt", "back");
+	check(recordField(r + "/aliases/other", "birth", "") && recordField(r + "/aliases/other", "name", "again.txt"),
+		"an old record without a birth time");
+	QFile::remove(r + "/docs/again.txt");
+	check(aliasResolve(r + "/aliases/other").state == AliasState::Missing,
+		"an old record only reconnects to an item that kept its name");
+	QFile::remove(r + "/docs/decoy");
+	touch(r + "/docs/again.txt", "new");
+	check(aliasReconnect(r + "/aliases/other", r + "/docs/again.txt") &&
+		aliasResolve(r + "/aliases/other").state == AliasState::Ok, "the user points it at the item again");
+
+	check(recordField(r + "/aliases/other", "filesystem", "") &&
+		recordField(r + "/aliases/other", "dev", "18446744073709551615") &&
+		recordField(r + "/aliases/other", "ino", "18446744073709551615"),
+		"simulate a replaced original with a legacy record after remount");
+	check(aliasResolve(r + "/aliases/other").state == AliasState::Changed &&
+		recordContents(r + "/aliases/other").contains("filesystem=\n"),
+		"legacy migration never adopts a replacement inode");
+	check(aliasReconnect(r + "/aliases/other", r + "/docs/again.txt"),
+		"restore confirmed replacement identity");
+
+	/* User-assisted reconnect of a lost alias. */
+	QFile::link(r + "/docs/gone", r + "/aliases/lost");
+	check(aliasResolve(r + "/aliases/lost").state == AliasState::Missing, "legacy dangling link is Missing");
+	QString error;
+	check(!aliasReconnect(r + "/aliases/lost", r + "/docs/nothing", &error) && !error.isEmpty(),
+		"reconnect to a missing item is refused");
+	check(aliasReconnect(r + "/aliases/lost", r + "/docs/sub") &&
+		aliasResolve(r + "/aliases/lost").state == AliasState::Ok, "user chooses a new original");
+
+	/* Legacy symlinks keep working and gain a record. */
+	QFile::link(r + "/docs/again.txt", r + "/aliases/legacy");
+	check(aliasResolve(r + "/aliases/legacy").state == AliasState::Ok &&
+		QFileInfo(r + "/aliases/.alias/legacy").isFile(), "plain symlink works and is adopted");
+	check(aliasResolve(r + "/docs/again.txt").state == AliasState::NotAlias, "regular file is not an alias");
+
+	/* Loops. */
+	QFile::link(r + "/aliases/b", r + "/aliases/a");
+	QFile::link(r + "/aliases/a", r + "/aliases/b");
+	check(aliasResolve(r + "/aliases/a").state == AliasState::Loop, "two-link loop detected");
+	QFile::link(r + "/aliases/self", r + "/aliases/self");
+	check(aliasResolve(r + "/aliases/self").state == AliasState::Loop, "self link detected");
+	check(!aliasReconnect(r + "/aliases/lost", r + "/aliases/lost"), "alias cannot point to itself");
+	check(!aliasReconnect(r + "/aliases/lost", r + "/aliases/a"), "alias cannot point into a loop");
+	check(!aliasMoveRecord(r + "/aliases/other", "/proc/zacos9-alias-test", true),
+		"record preservation failure is reported to the caller");
+
+	/* One of the Finder's own items: the link names a virtual path and has
+	 * no identity record to reconnect. */
+	const QString virtualAlias = r + "/aliases/Applications alias";
+	QString virtualTarget;
+	check(QFile::link(aliasVirtualLinkTarget("vfs:/applications"), virtualAlias),
+		"create a virtual alias link");
+	check(aliasVirtualTarget(virtualAlias, &virtualTarget) &&
+		virtualTarget == "vfs:/applications", "virtual alias reads back its path");
+	check(aliasResolve(virtualAlias).state == AliasState::Ok &&
+		aliasResolve(virtualAlias).target == "vfs:/applications",
+		"virtual alias resolves to its virtual path");
+	check(!aliasVirtualTarget(alias, &virtualTarget), "a file alias is not virtual");
+
+	return failures ? 1 : 0;
+}

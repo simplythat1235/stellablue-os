@@ -1,0 +1,535 @@
+#!/bin/sh
+# zacos9-sharing-helper: the privileged half of the File Sharing control
+# panel (zacos9-filesharing). It runs as root through pkexec; polkit lets
+# administrators at the computer use it without a password
+# (org.zacos9.sharing).
+#
+#   zacos9-sharing-helper apply        settings on stdin, key=value lines:
+#                                        name, owner, afp, smb, guests,
+#                                        oldmacs (yes/no for the last four;
+#                                        "cleartext" is read as oldmacs)
+#   zacos9-sharing-helper password     your password for Windows sharing on
+#                                        stdin (only for yourself)
+#   zacos9-sharing-helper macpassword  your password for Mac OS 8.1 and
+#                                        earlier on stdin: 1 to 8 printable
+#                                        ASCII characters (only for yourself)
+#   zacos9-sharing-helper status [USER]
+#                                        who is connected: conn<TAB>kind<TAB>
+#                                        user<TAB>address<TAB>pid lines; and
+#                                        password<TAB>set if USER (you, by
+#                                        default) has a Windows sharing
+#                                        password, macpassword<TAB>set if one
+#                                        for older Macs
+#   zacos9-sharing-helper disconnect PID
+#   zacos9-sharing-helper share FOLDER     share a folder of yours (Get Info's
+#   zacos9-sharing-helper unshare FOLDER   "Share this item and its contents")
+#   zacos9-sharing-helper privileges FOLDER OWNER GROUP MODE [all]
+#                                        Get Info's Owner, User/Group and
+#                                        Everyone privileges: the folder's Unix
+#                                        owner, group and permissions (octal,
+#                                        e.g. 755); "all" copies them to every
+#                                        folder and file inside
+#
+# The settings live in /etc/zacos9/sharing.conf, and the shared folders in
+# /etc/zacos9/shared-folders (NAME<TAB>PATH lines); both are readable by
+# everyone. /etc/netatalk/afp.conf (Macs, AFP) and /etc/samba/smb.conf
+# (Windows, SMB) are written from them. The files the packages installed are
+# kept once as *.zacos9-orig.
+#
+# As on a Mac, privileges belong to the folder: Netatalk and Samba both go by
+# the Unix permissions of whoever connects. Only a folder's owner may share it
+# or change its privileges, and a shared folder can't be inside another.
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+conf=/etc/zacos9/sharing.conf
+afppasswd=/etc/netatalk/afppasswd
+shares=/etc/zacos9/shared-folders
+tab=$(printf '\t')
+
+die() {
+	echo "$1" >&2
+	exit 1
+}
+
+[ "$(id -u)" = 0 ] || die "zacos9-sharing-helper must run as root (through pkexec)."
+
+# The user who asked: pkexec says, sudo says, or root itself.
+caller() {
+	if [ -n "${PKEXEC_UID:-}" ]; then
+		getent passwd "$PKEXEC_UID" | cut -d: -f1
+	elif [ -n "${SUDO_USER:-}" ]; then
+		echo "$SUDO_USER"
+	else
+		echo root
+	fi
+}
+
+yesno() {
+	case $1 in yes | no) echo "$1" ;; *) die "Expected yes or no, not \"$1\"." ;; esac
+}
+
+# A computer name: printable, no characters that mean something in the
+# config files, at most 63 bytes (AFP's limit).
+check_name() {
+	n=$1
+	[ -n "$n" ] || die "The computer name is empty."
+	[ "$(printf %s "$n" | wc -c)" -le 63 ] || die "The computer name is longer than 63 bytes."
+	if printf %s "$n" | grep -q '[][;#=\\"[:cntrl:]]'; then
+		die "The computer name can't contain ; # [ ] = \\ \" or control characters."
+	fi
+	case $n in
+	" "* | *" ") die "The computer name can't start or end with a space." ;;
+	esac
+}
+
+check_owner() {
+	entry=$(getent passwd "$1") || die "There is no user \"$1\"."
+	uid=$(echo "$entry" | cut -d: -f3)
+	[ "$uid" -ge 1000 ] && [ "$uid" -lt 60000 ] || die "\"$1\" isn't a person's account."
+}
+
+# Up to 15 letters, digits and hyphens: the NetBIOS name Windows shows.
+netbios_name() {
+	printf %s "$1" | tr -c 'A-Za-z0-9-' '-' | tr -s '-' | sed 's/^-//; s/-$//' | cut -c1-15 |
+		tr '[:lower:]' '[:upper:]'
+}
+
+keep_original() {
+	[ -e "$1.zacos9-orig" ] || { [ -e "$1" ] && cp -p "$1" "$1.zacos9-orig"; } || true
+}
+
+write_afp_conf() {
+	uams="uams_dhx2.so uams_dhx.so"
+	# Mac OS 8.1 and earlier know only clear text and Randnum, and take
+	# passwords of 8 characters at most: Randnum, with a password of its
+	# own (macpassword), which never crosses the network.
+	[ "$oldmacs" = yes ] && uams="$uams uams_randnum.so"
+	[ "$guests" = yes ] && uams="$uams uams_guest.so"
+	# Mac OS 9's Chooser finds servers by AppleTalk (NBP), not Bonjour:
+	# afpd registers itself there only if asked to, and only atalkd (a
+	# package of its own) can take that registration.
+	appletalk=no
+	[ -x /usr/sbin/atalkd ] && appletalk=yes
+	# Netatalk can't have a volume inside another: it keeps each folder's ID
+	# on the folder, and a shared folder's (its volume's root) would clash
+	# in the home volume around it. So home volumes hide the shared folders
+	# in them, which Macs mount as volumes of their own.
+	home_veto=/.*/
+	each_share | while IFS="$tab" read -r sname spath; do
+		case $spath in /home/*/*) printf '%s/' "$(basename "$spath")" ;; esac
+	done >/tmp/zacos9-veto.$$
+	home_veto="$home_veto$(cat /tmp/zacos9-veto.$$)"
+	rm -f /tmp/zacos9-veto.$$
+	keep_original /etc/netatalk/afp.conf
+	cat >/etc/netatalk/afp.conf <<EOF
+; Written by ZacOS 9's File Sharing control panel from $conf;
+; changes made here are replaced the next time it saves. The original is
+; afp.conf.zacos9-orig.
+
+[Global]
+server name = $name
+; DHX2: macOS. DHX: Mac OS 8.5 to 9. Randnum: older Macs, if allowed, with
+; the password in $afppasswd.
+uam list = $uams
+passwd file = $afppasswd
+; The Chooser's AppleShare list (needs atalkd running).
+appletalk = $appletalk
+guest account = nobody
+mac charset = MAC_ROMAN
+
+[Homes]
+basedir regex = /home
+; Named after the folder, as Mac OS 9 named a user's folder, not "NAME's home".
+home name = \$u
+; Unix's hidden files stay hidden from Macs too, and so do shared folders.
+veto files = $home_veto
+EOF
+	# Shared folders (Get Info > Sharing). What each person may do is up to
+	# the folders' Unix permissions; guests log in as "nobody".
+	each_share | while IFS="$tab" read -r sname spath; do
+		# (Netatalk lowercases section names; "volume name" keeps the case.)
+		printf '\n[%s]\nvolume name = %s\npath = %s\nveto files = /.*/\n' "$sname" "$sname" "$spath"
+	done >>/etc/netatalk/afp.conf
+}
+
+write_smb_conf() {
+	guest_map=Never
+	[ "$guests" = yes ] && guest_map="Bad User"
+	keep_original /etc/samba/smb.conf
+	cat >/etc/samba/smb.conf <<EOF
+# Written by ZacOS 9's File Sharing control panel from $conf;
+# changes made here are replaced the next time it saves. The original is
+# smb.conf.zacos9-orig.
+
+[global]
+   netbios name = $(netbios_name "$name")
+   server string = $name
+   workgroup = WORKGROUP
+   server role = standalone server
+   security = user
+   passdb backend = tdbsam
+   map to guest = $guest_map
+   guest account = nobody
+   server min protocol = SMB2_02
+   vfs objects = fruit streams_xattr
+   fruit:metadata = stream
+   log file = /var/log/samba/log.%m
+   max log size = 1000
+   logging = file
+
+[homes]
+   comment = Home folder
+   browseable = no
+   read only = no
+   valid users = %S
+   create mask = 0644
+   directory mask = 0755
+EOF
+	guest_ok=no
+	[ "$guests" = yes ] && guest_ok=yes
+	# Shared folders: new files and folders take their folder's permissions,
+	# as they took the enclosing folder's privileges on a Mac.
+	each_share | while IFS="$tab" read -r sname spath; do
+		printf '\n[%s]\n   path = %s\n   read only = no\n   guest ok = %s\n   inherit permissions = yes\n   hide dot files = yes\n' \
+			"$sname" "$spath" "$guest_ok"
+	done >>/etc/samba/smb.conf
+}
+
+# Announcing this computer's own SMB server over Bonjour, for the
+# Network Browser's list (and modern Macs' own "Connect to Server").
+# Netatalk needs nothing here: once avahi-daemon is running (configure()
+# below ensures that), it announces the AFP server itself, through
+# avahi's Bonjour-compatibility library, under the configured server
+# name — confirmed live, and a service file of our own here would only
+# have duplicated it, less helpfully (named after the hostname, not
+# "name=" from sharing.conf). Samba's own avahi support could not be
+# confirmed the same way (smbd would not start to test against in the
+# development container this was built in; see docs/network.md), so
+# this is kept rather than assumed redundant too.
+write_avahi_services() {
+	mkdir -p /etc/avahi/services
+	if [ "$smb" = yes ]; then
+		cat >/etc/avahi/services/zacos9-smb.service <<EOF
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!-- Written by ZacOS 9's File Sharing control panel. -->
+<service-group>
+	<name replace-wildcards="yes">%h</name>
+	<service>
+		<type>_smb._tcp</type>
+		<port>445</port>
+	</service>
+</service-group>
+EOF
+	else
+		rm -f /etc/avahi/services/zacos9-smb.service
+	fi
+	systemctl reload avahi-daemon.service 2>/dev/null || true
+}
+
+# The shared folders that are still there.
+each_share() {
+	[ -f "$shares" ] || return 0
+	while IFS="$tab" read -r sname spath; do
+		[ -n "$sname" ] && [ -d "$spath" ] && printf '%s\t%s\n' "$sname" "$spath"
+	done <"$shares"
+}
+
+services() { # services on|off UNIT...
+	state=$1
+	shift
+	for u in "$@"; do
+		systemctl list-unit-files "$u.service" >/dev/null 2>&1 || continue
+		if [ "$state" = on ]; then
+			systemctl enable --quiet "$u.service" 2>/dev/null || true
+			if ! systemctl restart "$u.service" 2>/dev/null; then
+				case $u in
+				# Only announce the computer on the network: sharing works without.
+				nmbd | wsdd2 | avahi-daemon | atalkd) echo "warning: $u didn't start" >&2 ;;
+				*) die "$u didn't start; see: journalctl -u $u" ;;
+				esac
+			fi
+		else
+			systemctl disable --now --quiet "$u.service" 2>/dev/null || true
+		fi
+	done
+}
+
+apply() {
+	name="" owner="" afp=no smb=no guests=no oldmacs=no
+	while IFS= read -r line; do
+		key=${line%%=*}
+		value=${line#*=}
+		case $key in
+		name) name=$value ;;
+		owner) owner=$value ;;
+		afp) afp=$(yesno "$value") ;;
+		smb) smb=$(yesno "$value") ;;
+		guests) guests=$(yesno "$value") ;;
+		oldmacs | cleartext) oldmacs=$(yesno "$value") ;;
+		"") ;;
+		*) die "Unknown setting \"$key\"." ;;
+		esac
+	done
+	check_name "$name"
+	check_owner "$owner"
+
+	mkdir -p /etc/zacos9
+	umask 022
+	cat >"$conf.new" <<EOF
+name=$name
+owner=$owner
+afp=$afp
+smb=$smb
+guests=$guests
+oldmacs=$oldmacs
+EOF
+	mv "$conf.new" "$conf"
+	configure
+}
+
+# The settings from sharing.conf (false if there are none yet).
+load_settings() {
+	[ -f "$conf" ] || return 1
+	name="" owner="" afp=no smb=no guests=no oldmacs=no
+	while IFS= read -r line; do
+		value=${line#*=}
+		case ${line%%=*} in
+		name) name=$value ;;
+		owner) owner=$value ;;
+		afp) afp=$value ;;
+		smb) smb=$value ;;
+		guests) guests=$value ;;
+		oldmacs | cleartext) oldmacs=$value ;;
+		esac
+	done <"$conf"
+}
+
+# Writes the servers' settings and starts or stops them.
+configure() {
+	if [ "$afp" = yes ]; then
+		write_afp_conf
+		# atalkd first: afpd registers its name with it as it starts.
+		services on avahi-daemon atalkd netatalk
+	else
+		services off netatalk
+	fi
+	if [ "$smb" = yes ]; then
+		write_smb_conf
+		services on avahi-daemon smbd nmbd wsdd2
+	else
+		services off smbd nmbd wsdd2
+	fi
+	write_avahi_services
+}
+
+# After the shared folders change: running servers take the new list
+# without dropping anyone (afpd and smbd reread their settings).
+reconfigure() {
+	load_settings || return 0
+	if [ "$afp" = yes ]; then
+		write_afp_conf
+		systemctl reload netatalk.service 2>/dev/null || systemctl try-restart netatalk.service || true
+	fi
+	if [ "$smb" = yes ]; then
+		write_smb_conf
+		smbcontrol smbd reload-config >/dev/null 2>&1 || true
+	fi
+}
+
+# A folder the caller owns, as its real path.
+own_folder() {
+	p=$(realpath -e -- "$1" 2>/dev/null) || die "There's no folder \"$1\"."
+	[ -d "$p" ] || die "\"$(basename "$p")\" isn't a folder."
+	[ "$p" != / ] || die "The whole disk can't be shared; share folders on it instead."
+	# The settings files are line by line, and these mean something in them.
+	if [ "$(printf %s "$p" | wc -l)" -ne 0 ] || printf %s "$p" | grep -q '[;#"\\[:cntrl:]]'; then
+		die "Folders with ; # \" \\ or control characters in their names can't be shared."
+	fi
+	who=$(caller)
+	if [ "$who" != root ] && [ "$(stat -c %U -- "$p")" != "$who" ]; then
+		die "Only the owner of \"$(basename "$p")\" can share it or change its privileges."
+	fi
+	echo "$p"
+}
+
+# Shortens to 27 characters, a classic Mac's limit for volume names.
+cut27() {
+	printf %s "$1" | LC_ALL=C.UTF-8 sed "s/^\(.\{${2:-27}\}\).*/\1/"
+}
+
+# A share name from a folder's: what Macs and Windows both accept, and not
+# one already in use.
+share_name() {
+	base=$(basename "$1" | LC_ALL=C.UTF-8 sed 's#[]:/*?"<>|=;,+%$[]#-#g; s/^[ .]*//; s/ *$//')
+	[ -n "$base" ] || base=Shared
+	case $(echo "$base" | tr '[:upper:]' '[:lower:]') in
+	global | homes | printers) base="$base Folder" ;;
+	esac
+	cand=$(cut27 "$base")
+	n=1
+	while :; do
+		lower=$(echo "$cand" | tr '[:upper:]' '[:lower:]')
+		taken=no
+		if [ -f "$shares" ] && cut -f1 "$shares" | tr '[:upper:]' '[:lower:]' | grep -qxF "$lower"; then
+			taken=yes
+		fi
+		# \\computer\name is that user's home folder.
+		getent passwd "$cand" >/dev/null && taken=yes
+		[ $taken = no ] && break
+		n=$((n + 1))
+		cand="$(cut27 "$base" $((27 - ${#n} - 1))) $n"
+	done
+	echo "$cand"
+}
+
+share() {
+	path=$(own_folder "$1")
+	if [ -f "$shares" ]; then
+		while IFS="$tab" read -r sname spath; do
+			[ "$spath" = "$path" ] && return 0
+			case $path/ in "$spath"/*) die "\"$(basename "$path")\" is inside the shared folder \"$sname\", so it is shared already." ;; esac
+			case $spath/ in "$path"/*) die "\"$(basename "$path")\" can't be shared because the folder \"$sname\" inside it is shared." ;; esac
+		done <"$shares"
+	fi
+	mkdir -p /etc/zacos9
+	umask 022
+	printf '%s\t%s\n' "$(share_name "$path")" "$path" >>"$shares"
+	reconfigure
+}
+
+unshare() {
+	path=$(own_folder "$1")
+	[ -f "$shares" ] || return 0
+	umask 022
+	awk -F '\t' -v p="$path" '$2 != p' "$shares" >"$shares.new"
+	mv "$shares.new" "$shares"
+	reconfigure
+}
+
+privileges() {
+	path=$(own_folder "$1")
+	new_owner=$2 group=$3 mode=$4
+	# Given to someone else: only to a person.
+	[ "$new_owner" = "$(stat -c %U -- "$path")" ] || check_owner "$new_owner"
+	getent group "$group" >/dev/null || die "There is no group \"$group\"."
+	case $mode in [0-7][0-7][0-7]) ;; *) die "Not a permission: $mode" ;; esac
+	if [ "${5:-}" = all ]; then
+		# Folders get the privileges, and files too (Unix has no "the
+		# enclosing folder's"): without x, which only programs keep.
+		fmode=$(echo "$mode" | tr 1357 0246)
+		xmode=$(echo "$fmode" | tr 46 57)
+		find "$path" -xdev ! -type l -exec chown -h "$new_owner:$group" {} +
+		find "$path" -xdev -type d -exec chmod "$mode" {} +
+		find "$path" -xdev -type f ! -perm -u+x -exec chmod "$fmode" {} +
+		find "$path" -xdev -type f -perm -u+x -exec chmod "$xmode" {} +
+	fi
+	chown -h "$new_owner:$group" "$path"
+	chmod "$mode" "$path"
+	# Others reach the folder through the ones it's in: let them pass
+	# through (not look in) the caller's own, such as their home folder,
+	# which Debian makes private.
+	who=$(caller)
+	case $mode:$who in ?00:* | *:root) ;; *)
+		uid=$(id -u "$who")
+		dir=$(dirname "$path")
+		while [ "$dir" != / ]; do
+			[ "$(stat -c %u -- "$dir")" = "$uid" ] && chmod o+x "$dir"
+			dir=$(dirname "$dir")
+		done
+		;;
+	esac
+}
+
+password() {
+	user=$(caller)
+	[ "$user" != root ] || die "Run this as the user whose password it is."
+	IFS= read -r pw || true
+	[ -n "$pw" ] || die "The password is empty."
+	printf '%s\n%s\n' "$pw" "$pw" | smbpasswd -s -a "$user" >/dev/null
+	smbpasswd -e "$user" >/dev/null
+}
+
+# Randnum's password: afppasswd's file, NAME:HEX:… lines, the password's
+# bytes in hex padded with zeros to 8. Written here, not with afppasswd -w,
+# which would show it in ps; afppasswd only if a key file encrypts them.
+macpassword() {
+	user=$(caller)
+	[ "$user" != root ] || die "Run this as the user whose password it is."
+	IFS= read -r pw || true
+	[ -n "$pw" ] || die "The password is empty."
+	[ ${#pw} -le 8 ] || die "Mac OS 8.1 and earlier take passwords of 8 characters at most."
+	if printf %s "$pw" | LC_ALL=C grep -q '[^ -~]'; then
+		die "Use only letters, digits and punctuation from a US keyboard: older Macs encode others differently."
+	fi
+	umask 077
+	[ -f "$afppasswd" ] || afppasswd -c -p "$afppasswd" >/dev/null
+	if [ -e "$afppasswd.key" ]; then
+		if grep -q "^$user:" "$afppasswd"; then
+			afppasswd -n -p "$afppasswd" -w "$pw" "$user" >/dev/null
+		else
+			afppasswd -a -n -p "$afppasswd" -w "$pw" "$user" >/dev/null
+		fi
+		return
+	fi
+	hex=$(printf %s "$pw" | od -An -tx1 | tr -d ' \n' | tr a-f A-F)
+	while [ ${#hex} -lt 16 ]; do hex=${hex}00; done
+	awk -F: -v OFS=: -v u="$user" -v h="$hex" '
+		$1 == u { $2 = h; found = 1 } { print }
+		END { if (!found) print u, h, "****************", "********" }' \
+		"$afppasswd" >"$afppasswd.new"
+	mv "$afppasswd.new" "$afppasswd"
+}
+
+status() {
+	who=${1:-$(caller)}
+	if [ "$who" != "$(caller)" ] && [ "$(caller)" != root ]; then
+		die "Only root can ask about another user's password."
+	fi
+	if pdbedit -L 2>/dev/null | cut -d: -f1 | grep -qxF "$who"; then
+		printf 'password\tset\n'
+	fi
+	if [ -f "$afppasswd" ] && awk -F: -v u="$who" '$1 == u && $2 !~ /^\*+$/ { f = 1 } END { exit !f }' "$afppasswd"; then
+		printf 'macpassword\tset\n'
+	fi
+	# AFP: each session is an afpd running as the user who logged in.
+	ss -Htnp state established '( sport = :548 )' 2>/dev/null | while read -r _ _ _ peer rest; do
+		pid=$(echo "$rest" | sed -n 's/.*pid=\([0-9]*\).*/\1/p')
+		[ -n "$pid" ] || continue
+		user=$(ps -o user= -p "$pid" 2>/dev/null | tr -d ' ')
+		[ "$user" = root ] && user="(logging in)"
+		# [::ffff:192.168.1.5]:51234 -> 192.168.1.5
+		addr=$(echo "${peer%:*}" | sed 's/^\[//; s/\]$//; s/^::ffff://')
+		printf 'conn\tafp\t%s\t%s\t%s\n' "$user" "$addr" "$pid"
+	done
+	# SMB: smbstatus's table of processes.
+	if command -v smbstatus >/dev/null && systemctl is-active -q smbd; then
+		smbstatus -b 2>/dev/null | awk '/^-+$/ { table = 1; next }
+			table && NF >= 4 && $1 ~ /^[0-9]+$/ { printf "conn\tsmb\t%s\t%s\t%s\n", $2, $4, $1 }'
+	fi
+}
+
+disconnect() {
+	pid=$1
+	case $pid in *[!0-9]* | "") die "Not a process number: $pid" ;; esac
+	comm=$(ps -o comm= -p "$pid" 2>/dev/null || true)
+	case $comm in
+	afpd | smbd) kill "$pid" ;;
+	*) die "Process $pid isn't a file sharing session." ;;
+	esac
+}
+
+case ${1:-} in
+apply) apply ;;
+password) password ;;
+macpassword) macpassword ;;
+status) status "${2:-}" ;;
+disconnect) disconnect "${2:-}" ;;
+share) share "${2:-}" ;;
+unshare) unshare "${2:-}" ;;
+privileges)
+	[ $# -ge 5 ] || die "usage: zacos9-sharing-helper privileges FOLDER OWNER GROUP MODE [all]"
+	privileges "$2" "$3" "$4" "$5" "${6:-}"
+	;;
+*) die "usage: zacos9-sharing-helper apply | password | macpassword | status | disconnect PID | share FOLDER | unshare FOLDER | privileges FOLDER OWNER GROUP MODE [all]" ;;
+esac

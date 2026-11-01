@@ -1,0 +1,121 @@
+#pragma once
+
+#include <QImage>
+
+#include <QFileSystemWatcher>
+#include <QSet>
+#include <QWidget>
+
+#include <QTimer>
+
+#include "finder.h"
+#include "folderstate.h"
+#include "items.h"
+#include "labeleditor.h"
+
+/*
+ * The desktop: a full-screen wlr-layer-shell surface beneath all windows,
+ * showing the desktop pattern, the disk at top right, the items in
+ * ~/Desktop below it, and the Trash at bottom right. Like the Mac's, it is
+ * a view onto the Desktop folder.
+ */
+class Desktop : public QWidget, public FinderView {
+public:
+	Desktop();
+	~Desktop() override;
+	/* File > Print Desktop: the desktop's icons on white, nothing
+	 * selected, cut down to where they are. */
+	QImage printImage();
+	/* Turn this widget into the layer surface; call before show(). */
+	void becomeLayerSurface();
+	/* Something changed in `folder`: refresh desktop items or the Trash. */
+	void folderChanged(const QString &folder);
+	void networkDisconnected(const QString &path);
+
+	/* FinderView */
+	QString folderPath() const override;
+	std::vector<Item *> selectedItems() override;
+	void selectByName(const QString &name) override;
+	void reload() override;
+	QWidget *widget() override { return this; }
+	void itemRenamed(const QString &from, const QString &to) override;
+	void arrange(Arrange how) override;
+	void selectAll() override;
+	/* View Options: the desktop's icon arrangement. */
+	const ViewOptions &viewOptions() const { return m_state.options; }
+	void setViewOptions(const ViewOptions &options);
+
+protected:
+	void paintEvent(QPaintEvent *) override;
+	void resizeEvent(QResizeEvent *) override;
+	void mousePressEvent(QMouseEvent *) override;
+	void mouseDoubleClickEvent(QMouseEvent *) override;
+	void keyPressEvent(QKeyEvent *) override;
+	void mouseMoveEvent(QMouseEvent *) override;
+	void mouseReleaseEvent(QMouseEvent *) override;
+	void dragEnterEvent(QDragEnterEvent *) override;
+	void dragMoveEvent(QDragMoveEvent *) override;
+	void dragLeaveEvent(QDragLeaveEvent *) override;
+	void dropEvent(QDropEvent *) override;
+
+private:
+	bool iconsShown() const;
+	void placeIcons();
+	std::function<QPoint(int)> gridSlot(int *slotCount) const;
+	int cellH() const;
+	void placeSelection(QPoint delta, Qt::KeyboardModifiers modifiers);
+	void updateTrashIcon();
+	void loadPattern();
+
+	int m_pattern = -1;
+	QFileSystemWatcher m_settingsWatcher;
+	Item *itemAt(QPoint pos);
+	Item *dropTargetAt(QPoint pos, const QStringList &dragged);
+	void clearDropTarget();
+	std::vector<Item *> allItems();
+
+	Item *m_pressItem = nullptr;
+	QPoint m_pressPos;
+	QPoint m_dragStart;
+
+	/* Selection rectangle; with Shift it toggles from its first selection. */
+	bool m_marquee = false;
+	bool m_marqueeExtend = false;
+	QPoint m_marqueeStart, m_marqueeEnd;
+	QSet<QString> m_marqueeBase; /* paths: volume polling can replace items */
+	void updateMarquee(QPoint pos);
+
+	/* Icons the user placed on the desktop, remembered (spatial). */
+	FolderState m_state;
+
+	/* Renaming items from ~/Desktop (the disk and Trash keep their names). */
+	LabelEditor m_editor{ [this] { update(); } };
+	QTimer m_renameTimer;
+	Item *m_renameItem = nullptr;
+	bool renamable(const Item *item) const;
+	void beginRename(Item *item);
+
+	/* The startup disk (the Macintosh view), the Trash, and Debian's own
+	 * filesystem when the registry asks for it. */
+	std::unique_ptr<Item> m_disk, m_trash, m_unix;
+	void buildUnixDisk();
+	std::vector<Item *> fixedItems() const;
+	bool isFixed(const Item *item) const;
+	int m_vfsToken = 0;
+
+	/* Volumes mounted from the Network Browser: polled (nothing watches
+	 * fusermount3 -u or gio mount -u run from a terminal, so there is
+	 * no event to wait for instead), not kept open across a rename —
+	 * there is nothing to rename, the name is the server's. */
+	std::vector<std::unique_ptr<Item>> m_netVolumes;
+	QTimer m_netVolumesTimer;
+	void refreshNetVolumes();
+
+	/* Block-device volumes mounted locally (USB, extra HDDs, optical
+	 * discs, SD cards). Updated via GVolumeMonitor signals. */
+	std::vector<std::unique_ptr<Item>> m_localVolumes;
+	void refreshLocalVolumes();
+
+	std::vector<std::unique_ptr<Item>> m_files; /* ~/Desktop */
+	QFileSystemWatcher m_watcher;
+};

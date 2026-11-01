@@ -1,0 +1,24 @@
+#!/bin/sh
+# Build, then run zacos9-wm as a window inside the current Wayland session
+# (WSLg on the Windows dev box). Extra args are passed to zacos9-wm.
+#
+#   scripts/run-nested.sh                 # opens a terminal inside
+#   scripts/run-nested.sh -s 'xterm'      # custom startup command
+#
+# Quit: Ctrl+Alt+Backspace inside the window, or close the window.
+set -eu
+self=$(realpath "$0")
+cd "$(dirname "$self")/.."
+. scripts/x11-namespace.sh
+scripts/build.sh
+
+# WSLg exposes no reliable GPU path for nested wlroots; software render is
+# plenty for a 1-bit-to-8-bit-era UI. Override with WLR_RENDERER=gles2.
+export WLR_RENDERER="${WLR_RENDERER:-pixman}"
+export WLR_WL_OUTPUTS=1
+
+if [ $# -eq 0 ]; then
+	# foot warns about every optional protocol we lack; keep the console quiet.
+	set -- -s 'foot 2>/dev/null'
+fi
+exec build/compositor/zacos9-wm "$@"

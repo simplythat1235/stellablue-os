@@ -1,0 +1,492 @@
+/*
+ * The control panels' settings that the compositor applies: mouse
+ * tracking speed, double-click speed, key repeat, and the screen's size
+ * and scale. They live in ~/.config/zacos9/desktop.conf (lib/settings);
+ * we watch that folder and apply changes as they happen.
+ *
+ * For the Monitors panel we also publish each screen's state and modes
+ * in $XDG_RUNTIME_DIR/zacos9-outputs-$WAYLAND_DISPLAY:
+ *   output NAME WxH scale S nested 0|1 x X y Y main 0|1
+ * (S as a decimal: 1, 1.25, 1.5, 1.75, 2, 3)
+ *   mode WxH@mHz
+ * and, once, "mirror 0|1", then "tablet NAME" for each tablet. X and Y are the screen's place in the layout
+ * (logical pixels: the size divided by the scale).
+ *
+ * Several screens: "main-display=NAME" has the menu bar and desktop icons;
+ * "display.NAME.resolution=WxH", "display.NAME.scale=S" and
+ * "display.NAME.x|y=N" set a screen's size, pixel size and place.
+ * "resolution" and "scale" alone are the Monitors panel's setting for one
+ * screen: that one when it is alone, or the main one when there are
+ * several (the others keep their own, picked from their density).
+ * "mirror=1" puts every screen at the same place.
+ */
+#define _GNU_SOURCE
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/inotify.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <wlr/types/wlr_fractional_scale_v1.h>
+#include <wlr/backend/wayland.h>
+#include <wlr/backend/x11.h>
+#include <wlr/types/wlr_keyboard.h>
+#include <wlr/types/wlr_output.h>
+#include <wlr/types/wlr_output_layout.h>
+#include <wlr/types/wlr_scene.h>
+#include <wlr/types/wlr_compositor.h>
+#include <wlr/util/log.h>
+
+#include "hotkey.h"
+#include "access.h"
+#include "frame.h"
+#include "server.h"
+#include "settings.h"
+
+/* Mouse tracking, Very Slow .. Fast (the Mouse panel's slider). */
+static const double tracking[] = { 0.4, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2 };
+#define TRACKING_DEFAULT 3
+/* Key repeat rate (keys per second; 0 = off) and delay until repeat
+ * (ms; 0 = off), as the Keyboard panel's sliders. */
+static const int repeat_rates[] = { 0, 2, 4, 8, 15, 25, 35 };
+#define REPEAT_DEFAULT 5
+static const int repeat_delays[] = { 0, 1100, 800, 600, 400, 250 };
+#define DELAY_DEFAULT 3
+
+static int setting_int(const char *key, int fallback, int min, int max) {
+	char v[32];
+	if (!pl_setting(key, v, sizeof(v))) {
+		return fallback;
+	}
+	char *end;
+	long n = strtol(v, &end, 10);
+	return *end || n < min || n > max ? fallback : (int)n;
+}
+
+float prefs_parse_scale(const char *s, float fallback) {
+	static const float scales[] = { 1, 1.25f, 1.5f, 1.75f, 2, 3, 4 };
+	if (!s) {
+		return fallback;
+	}
+	char *end;
+	const double v = strtod(s, &end);
+	if (end == s || *end) {
+		return fallback;
+	}
+	for (size_t i = 0; i < sizeof(scales) / sizeof(scales[0]); i++) {
+		if (v == scales[i]) {
+			return scales[i];
+		}
+	}
+	return fallback;
+}
+
+/* A screen's own setting ("display.NAME.KEY"), else the Monitors panel's
+ * one for a single screen. That one belongs to the main screen when there
+ * are several; the others keep their own size and scale. */
+static bool display_setting(struct plat_server *server, const struct wlr_output *o,
+		const char *key, char *value, size_t len) {
+	char name[96];
+	snprintf(name, sizeof(name), "display.%s.%s", o->name, key);
+	if (pl_setting(name, value, len)) {
+		return true;
+	}
+	/* A screen still being set up is not on the list yet: it is the only
+	 * one, so the main one. */
+	const struct plat_output *main_output = output_main(server);
+	return (!main_output || main_output->wlr_output == o) && pl_setting(key, value, len);
+}
+
+/* The Monitors panel's scale for a screen; 4 is only for -S. */
+static float setting_scale(struct plat_server *server, const struct wlr_output *o,
+		float fallback) {
+	char v[32];
+	if (!display_setting(server, o, "scale", v, sizeof(v))) {
+		return fallback;
+	}
+	const float scale = prefs_parse_scale(v, fallback);
+	return scale <= 3 ? scale : fallback;
+}
+
+int prefs_repeat_rate(void) {
+	const int rate = repeat_rates[setting_int("key-repeat", REPEAT_DEFAULT, 0, 6)];
+	const int delay = repeat_delays[setting_int("key-delay", DELAY_DEFAULT, 0, 5)];
+	return delay ? rate : 0;
+}
+
+/* The Keyboard panel's "Use Command-Option-Space": ⌘-Space is often taken. */
+bool prefs_layout_switch_option(void) {
+	char v[16];
+	return pl_setting("keyboard-switch", v, sizeof(v)) && strcmp(v, "option") == 0;
+}
+
+bool prefs_flag(const char *key, bool *on) {
+	char v[16];
+	if (!pl_setting(key, v, sizeof(v))) {
+		return false;
+	}
+	*on = strcmp(v, "true") == 0 || strcmp(v, "1") == 0;
+	return true;
+}
+
+bool prefs_show_desktop(void) {
+	char v[16];
+	return !pl_setting("show-desktop", v, sizeof(v)) || strcmp(v, "false") != 0;
+}
+
+bool prefs_title_collapse(void) {
+	char v[16];
+	return !pl_setting("title-collapse", v, sizeof(v)) || strcmp(v, "false") != 0;
+}
+
+int prefs_repeat_delay(void) {
+	const int delay = repeat_delays[setting_int("key-delay", DELAY_DEFAULT, 0, 5)];
+	return delay ? delay : 600;
+}
+
+static bool nested(struct wlr_output *o) {
+	return wlr_output_is_wl(o) || wlr_output_is_x11(o);
+}
+
+void prefs_write_outputs(struct plat_server *server) {
+	/* Named after our own socket, never $WAYLAND_DISPLAY: a nested zacos9-wm
+	 * starts its outputs while that still names the outer session, and
+	 * overwrote the outer session's file (its Finder then took a nested
+	 * screen for the main display and covered the real desktop). */
+	const char *runtime = getenv("XDG_RUNTIME_DIR");
+	const char *display = server->socket;
+	if (!runtime || !display) {
+		return;
+	}
+	char path[1024], tmp[1100];
+	snprintf(path, sizeof(path), "%s/zacos9-outputs-%s", runtime, display);
+	snprintf(tmp, sizeof(tmp), "%s.new", path);
+	FILE *f = fopen(tmp, "w");
+	if (!f) {
+		return;
+	}
+	struct plat_output *output;
+	struct plat_output *main = output_main(server);
+	fprintf(f, "mirror %d\n", setting_int("mirror", 0, 0, 1));
+	wl_list_for_each_reverse(output, &server->outputs, link) {
+		struct wlr_output *o = output->wlr_output;
+		struct wlr_box box = { 0 };
+		wlr_output_layout_get_box(server->output_layout, o, &box);
+		fprintf(f, "output %s %dx%d scale %g nested %d x %d y %d main %d\n", o->name, o->width,
+			o->height, (double)o->scale, nested(o) ? 1 : 0, box.x, box.y, output == main ? 1 : 0);
+		struct wlr_output_mode *mode;
+		wl_list_for_each(mode, &o->modes, link) {
+			fprintf(f, "mode %dx%d@%d\n", mode->width, mode->height, mode->refresh);
+		}
+	}
+	tablet_write_status(server, f);
+	fclose(f);
+	rename(tmp, path);
+}
+
+static void prefer_scale(struct wlr_scene_buffer *buffer, int sx, int sy, void *data) {
+	struct wlr_scene_surface *scene_surface = wlr_scene_surface_try_from_buffer(buffer);
+	/* Each surface the scale of the screen it is (mostly) on. */
+	if (scene_surface && buffer->primary_output) {
+		const float scale = buffer->primary_output->output->scale;
+		/* 1.5: 2x buffers for those without wp_fractional_scale_v1. */
+		wlr_surface_set_preferred_buffer_scale(scene_surface->surface, (int32_t)ceilf(scale));
+		wlr_fractional_scale_v1_notify_scale(scene_surface->surface, scale);
+	}
+}
+
+/* wlroots tells a surface its preferred buffer scale when it enters an
+ * output, not when the output's scale changes; Qt then draws at the new
+ * scale but labels its buffers with the old one. Tell everyone. */
+static void refresh_surface_scales(struct plat_server *server) {
+	wlr_scene_node_for_each_buffer(&server->scene->tree.node, prefer_scale, NULL);
+}
+
+/* A screen's scale until one is chosen: 2x when it is dense enough
+ * (180 dpi and up, such as a Retina laptop) that 1x pixels would be too
+ * small to use, so it shows a classic-sized desktop at double size. */
+static float automatic_scale(struct plat_server *server, struct wlr_output *o) {
+	if (server->scale_explicit || nested(o) || o->phys_width <= 0) {
+		return server->default_scale;
+	}
+	const double dpi = o->width * 25.4 / o->phys_width;
+	return dpi >= 180 ? 2 : 1;
+}
+
+/* Apply the chosen scale and resolution to one output. */
+float prefs_output_scale(struct plat_server *server, struct wlr_output *o) {
+	return setting_scale(server, o, automatic_scale(server, o));
+}
+
+static void apply_output(struct plat_server *server, struct plat_output *output) {
+	struct wlr_output *o = output->wlr_output;
+	struct wlr_output_state state;
+	wlr_output_state_init(&state);
+	bool changed = false;
+
+	const float scale = prefs_output_scale(server, o);
+	if (o->scale != scale) {
+		wlr_output_state_set_scale(&state, scale);
+		changed = true;
+	}
+	char res[32];
+	int w, h;
+	if (display_setting(server, o, "resolution", res, sizeof(res)) &&
+			sscanf(res, "%dx%d", &w, &h) == 2 &&
+			w >= 640 && h >= 480 && (w != o->width || h != o->height)) {
+		struct wlr_output_mode *mode, *best = NULL;
+		wl_list_for_each(mode, &o->modes, link) {
+			if (mode->width == w && mode->height == h &&
+					(!best || mode->refresh > best->refresh)) {
+				best = mode;
+			}
+		}
+		if (best) {
+			wlr_output_state_set_mode(&state, best);
+			changed = true;
+		} else if (nested(o)) {
+			/* A nested session's screen is a window: any size will do. */
+			wlr_output_state_set_custom_mode(&state, w, h, 0);
+			changed = true;
+		}
+	}
+	if (changed && wlr_output_commit_state(o, &state)) {
+		wlr_xcursor_manager_load(server->cursor_mgr, scale);
+		layers_arrange(output);
+		refresh_surface_scales(server);
+	}
+	wlr_output_state_finish(&state);
+}
+
+static int display_pos(struct wlr_output *o, const char *axis, int fallback) {
+	char key[96];
+	snprintf(key, sizeof(key), "display.%s.%s", o->name, axis);
+	return setting_int(key, fallback, -100000, 100000);
+}
+
+static void logical_size(struct wlr_output *o, int *w, int *h) {
+	int ow, oh;
+	wlr_output_effective_resolution(o, &ow, &oh);
+	*w = ow;
+	*h = oh;
+}
+
+/* Where each screen sits: all at the origin when mirrored; else where the
+ * Monitors panel put them, if that is a layout without overlaps; else side
+ * by side, left to right, in the order they were connected. Either way the
+ * top-left screen starts at the origin: a saved screen that isn't connected
+ * leaves no empty strip before the others. An empty strip made X11's root
+ * wider than its screens, and X11 programs that map a tablet over the
+ * whole root (Krita) put the pen in the wrong place. */
+static void apply_layout(struct plat_server *server) {
+	struct plat_output *output;
+	struct wlr_output *outs[16];
+	int n = 0;
+	wl_list_for_each_reverse(output, &server->outputs, link) {
+		if (n < 16) {
+			outs[n++] = output->wlr_output;
+		}
+	}
+	if (n == 0) {
+		return;
+	}
+	int xs[16], ys[16];
+	bool saved = true;
+	for (int i = 0; i < n; i++) {
+		xs[i] = display_pos(outs[i], "x", INT32_MIN);
+		ys[i] = display_pos(outs[i], "y", INT32_MIN);
+		saved = saved && xs[i] != INT32_MIN && ys[i] != INT32_MIN;
+	}
+	if (setting_int("mirror", 0, 0, 1)) {
+		for (int i = 0; i < n; i++) {
+			xs[i] = ys[i] = 0;
+		}
+	} else {
+		bool overlap = false;
+		for (int i = 0; saved && i < n; i++) {
+			int wi, hi;
+			logical_size(outs[i], &wi, &hi);
+			for (int j = i + 1; j < n; j++) {
+				int wj, hj;
+				logical_size(outs[j], &wj, &hj);
+				if (xs[i] < xs[j] + wj && xs[j] < xs[i] + wi &&
+						ys[i] < ys[j] + hj && ys[j] < ys[i] + hi) {
+					overlap = true;
+				}
+			}
+		}
+		if (!saved || overlap) {
+			if (saved) {
+				wlr_log(WLR_INFO, "display layout: the saved places overlap, placing the screens side by side");
+			}
+			/* Left to right, by the saved place where there is one. */
+			int order[16];
+			for (int i = 0; i < n; i++) {
+				order[i] = i;
+			}
+			for (int i = 1; i < n; i++) {
+				for (int j = i; j > 0 && saved && xs[order[j]] < xs[order[j - 1]]; j--) {
+					int t = order[j];
+					order[j] = order[j - 1];
+					order[j - 1] = t;
+				}
+			}
+			int x = 0;
+			for (int k = 0; k < n; k++) {
+				int w, h;
+				logical_size(outs[order[k]], &w, &h);
+				xs[order[k]] = x;
+				ys[order[k]] = 0;
+				x += w;
+			}
+		}
+	}
+	int left = xs[0], top = ys[0];
+	for (int i = 1; i < n; i++) {
+		left = xs[i] < left ? xs[i] : left;
+		top = ys[i] < top ? ys[i] : top;
+	}
+	for (int i = 0; i < n; i++) {
+		wlr_output_layout_add(server->output_layout, outs[i], xs[i] - left, ys[i] - top);
+	}
+	wl_list_for_each(output, &server->outputs, link) {
+		layers_arrange(output);
+	}
+	layers_pin_to_main(server);
+}
+
+/* Night Mode: a warm tint over the whole desktop, from "night-mode=1" in
+ * desktop.conf. One scene rectangle covers every screen's layout, so it
+ * tints the desktop, windows and The Collar alike, seamlessly across
+ * monitors, and takes no input of its own. */
+void night_mode_apply(struct plat_server *server) {
+	char v[8];
+	const bool on = pl_setting("night-mode", v, sizeof(v)) && strcmp(v, "1") == 0;
+	if (!on) {
+		if (server->night_rect) {
+			wlr_scene_node_destroy(&server->night_rect->node);
+			server->night_rect = NULL;
+		}
+		return;
+	}
+	struct wlr_box box;
+	wlr_output_layout_get_box(server->output_layout, NULL, &box);
+	if (box.width <= 0 || box.height <= 0) {
+		return;
+	}
+	if (!server->night_rect) {
+		/* Premultiplied: warm amber at about 28% opacity. */
+		const float color[4] = { 0.28f, 0.13f, 0.0f, 0.28f };
+		server->night_rect = wlr_scene_rect_create(server->night_layer, box.width,
+			box.height, color);
+	} else {
+		wlr_scene_rect_set_size(server->night_rect, box.width, box.height);
+	}
+	wlr_scene_node_set_position(&server->night_rect->node, box.x, box.y);
+	wlr_scene_node_raise_to_top(&server->night_rect->node);
+}
+
+void prefs_apply(struct plat_server *server) {
+	server->pointer_speed = tracking[setting_int("mouse-speed", TRACKING_DEFAULT, 0, 6)];
+	server->double_click_ms = setting_int("double-click", PLAT_DOUBLE_CLICK_MS, 150, 2000);
+	bool on = false;
+	server->mouse_tracks = prefs_flag("mouse-tracks", &on) && on;
+	on = false;
+	server->thick_ibeam = prefs_flag("thick-ibeam", &on) && on;
+
+	input_apply_layouts(server);
+	input_apply_trackpads(server);
+	access_apply(server);
+	struct plat_keyboard *kb;
+	wl_list_for_each(kb, &server->keyboards, link) {
+		if (!kb->is_virtual) {
+			wlr_keyboard_set_repeat_info(kb->wlr_keyboard, prefs_repeat_rate(),
+				prefs_repeat_delay());
+		}
+	}
+	struct plat_output *output;
+	wl_list_for_each(output, &server->outputs, link) {
+		apply_output(server, output);
+	}
+	apply_layout(server);
+	night_mode_apply(server);
+	/* X11 and the mouse tracks have one scale: the main screen's. */
+	struct plat_output *main = output_main(server);
+	if (main) {
+		server->output_scale = main->wlr_output->scale;
+	}
+	/* Window frames at a screen's new scale, or its new place. */
+	struct plat_view *view;
+	wl_list_for_each(view, &server->views, link) {
+		frame_commit(view->frame);
+	}
+	tablet_map(server); /* the Tablet panel's screen, or a new main display */
+	touch_map(server);
+	view_refresh_fullscreen(server);
+	prefs_write_outputs(server);
+	idle_update(server); /* the Energy Saver panel's timings */
+}
+
+static int settings_changed(int fd, uint32_t mask, void *data) {
+	char events[4096];
+	while (read(fd, events, sizeof(events)) > 0) {
+	}
+	prefs_apply(data);
+	return 0;
+}
+
+/* mkdir -p: a new account has no ~/.config yet, and mkdir() makes one level only. */
+static void make_dirs(const char *dir) {
+	char path[1024];
+	snprintf(path, sizeof(path), "%s", dir);
+	for (char *p = path + 1; *p; p++) {
+		if (*p == '/') {
+			*p = '\0';
+			mkdir(path, 0755);
+			*p = '/';
+		}
+	}
+	mkdir(path, 0755);
+}
+
+void prefs_init(struct plat_server *server) {
+	server->default_scale = server->output_scale;
+	server->pointer_speed = 1.0;
+	server->double_click_ms = PLAT_DOUBLE_CLICK_MS;
+
+	int fd = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
+	if (fd < 0) {
+		return;
+	}
+	const char *config = getenv("XDG_CONFIG_HOME");
+	const char *home = getenv("HOME");
+	char dir[1024];
+	if (config && *config) {
+		snprintf(dir, sizeof(dir), "%s/zacos9", config);
+	} else {
+		snprintf(dir, sizeof(dir), "%s/.config/zacos9", home ? home : "");
+	}
+	/* The control panels' changes are only seen if this folder can be watched,
+	 * and it must exist for that: a fresh account (the live session's, or one
+	 * the Setup Assistant just made) has no ~/.config when zacos9-wm starts. */
+	make_dirs(dir);
+	if (inotify_add_watch(fd, dir, IN_CLOSE_WRITE | IN_MOVED_TO | IN_DELETE) < 0) {
+		wlr_log_errno(WLR_ERROR, "can't watch %s: control panel changes won't apply", dir);
+	}
+	wl_event_loop_add_fd(wl_display_get_event_loop(server->display), fd, WL_EVENT_READABLE,
+		settings_changed, server);
+}
+
+/* The Collar panel's hot key, if it chose "Hot key to show/hide". */
+bool prefs_collar_hotkey(uint32_t mods, xkb_keysym_t sym) {
+	char v[128];
+	if (!pl_setting("collar-visibility", v, sizeof(v)) || strcmp(v, "hotkey") != 0) {
+		return false;
+	}
+	if (!pl_setting("collar-hotkey", v, sizeof(v)) || !*v) {
+		strcpy(v, HOTKEY_DEFAULT);
+	}
+	return hotkey_matches(v, mods, sym);
+}
