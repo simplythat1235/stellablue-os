@@ -12,7 +12,7 @@
 #include <QWidget>
 
 BarkRecorder::BarkRecorder(QWidget *parent) : QMainWindow(parent) {
-	setWindowTitle("Bark Recorder");
+	setWindowTitle("Playin' Recorder");
 	setAttribute(Qt::WA_DeleteOnClose);
 	auto *page = new QWidget(this);
 	auto *layout = new QVBoxLayout(page);
@@ -183,7 +183,7 @@ void BarkRecorder::chooseRecording() {
 	const QString path = QFileDialog::getSaveFileName(this, "Record a Sound",
 		QDir::homePath() + "/Recording.wav", "WAVE audio (*.wav)");
 	if (!path.isEmpty() && !startRecording(path)) {
-		QMessageBox::warning(this, "Bark Recorder",
+		QMessageBox::warning(this, "Playin' Recorder",
 			"Choose a .wav file, and stop playback before recording.");
 	}
 }
@@ -193,7 +193,7 @@ void BarkRecorder::choosePlayback() {
 		m_recordingPath.isEmpty() ? QDir::homePath() : QFileInfo(m_recordingPath).absolutePath(),
 		"WAVE audio (*.wav)");
 	if (!path.isEmpty() && !playRecording(path)) {
-		QMessageBox::warning(this, "Bark Recorder",
+		QMessageBox::warning(this, "Playin' Recorder",
 			"Choose a readable .wav file, and stop recording before playback.");
 	}
 }
@@ -203,14 +203,14 @@ void BarkRecorder::reportProcessError(const QString &action, QProcess *process) 
 	const QString reason = process->error() == QProcess::UnknownError
 		? QString("The audio command exited with status %1.").arg(process->exitCode())
 		: process->errorString();
-	QMessageBox::critical(this, "Bark Recorder", "Could not " + action + ". " + reason +
+	QMessageBox::critical(this, "Playin' Recorder", "Could not " + action + ". " + reason +
 		(details.isEmpty() ? QString() : "\n" + details));
 }
 
 void BarkRecorder::closeEvent(QCloseEvent *event) {
 	if (isRecording()) {
-		const auto answer = QMessageBox::question(this, "Bark Recorder",
-			"Stop the recording and close Bark Recorder?",
+		const auto answer = QMessageBox::question(this, "Playin' Recorder",
+			"Stop the recording and close Playin' Recorder?",
 			QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
 		if (answer != QMessageBox::Yes) {
 			event->ignore();

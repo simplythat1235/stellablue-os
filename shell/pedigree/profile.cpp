@@ -611,6 +611,6 @@ QString profileText(const QList<ProfileItem> &items) {
 }
 
 QString profileReport(const QList<ProfileItem> &system, const QList<ProfileItem> &devices) {
-	return "Pedigree report\n\nSystem Profile\n\n" + profileText(system) + "\nDevices and Volumes\n\n" +
+	return "Eyes of the World report\n\nSystem Profile\n\n" + profileText(system) + "\nDevices and Volumes\n\n" +
 		profileText(devices);
 }

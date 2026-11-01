@@ -27,11 +27,11 @@ constexpr uint32_t FACE = GRAY(0xD);
 class Retriever : public QWidget {
 public:
 	Retriever() : m_host(this), m_pairs(loadPairs()) {
-		setWindowTitle("Retriever");
+		setWindowTitle("Not Fade Away");
 		setFixedSize(W, H);
 		m_list.frame = QRect(M, 30, W - 2 * M, 9 * PL_LIST_ROW_H + 2);
 		m_list.picked = [this](int) { updateButtons(); };
-		m_host.hintAreas.push_back({ &m_list.frame, "Folder pairs Retriever keeps alike." });
+		m_host.hintAreas.push_back({ &m_list.frame, "Folder pairs Not Fade Away keeps alike." });
 		const int y = m_list.frame.bottom() + 10;
 		m_add = PanelButton("Add Pair…", QRect(M, y, 96, PL_BUTTON_H));
 		m_add.hint = "Chooses two folders to keep alike.";
@@ -193,7 +193,7 @@ int main(int argc, char *argv[]) {
 	/* zacos9-wm draws every frame; Qt must not add its own. */
 	qputenv("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1");
 	QApplication app(argc, argv);
-	QApplication::setApplicationName("Retriever");
+	QApplication::setApplicationName("Not Fade Away");
 	QApplication::setDoubleClickInterval(pl_double_click_ms());
 	QGuiApplication::setDesktopFileName("zacos9-retriever"); /* Wayland app_id */
 	platinumShellInit();

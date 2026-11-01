@@ -38,9 +38,9 @@ sudo_ lb config \
 	--archive-areas "main contrib non-free non-free-firmware" \
 	--firmware-chroot true \
 	--debian-installer live \
-	--iso-application "ZacOS 9" \
-	--iso-publisher "ZacOS 9" \
-	--iso-volume "ZacOS 9" \
+	--iso-application "Dark Star OS" \
+	--iso-publisher "Dark Star OS" \
+	--iso-volume "DarkStarOS" \
 	--image-name zacos9 \
 	--bootappend-live "$(cat "$root/iso/kernel-params")" \
 	--memtest none

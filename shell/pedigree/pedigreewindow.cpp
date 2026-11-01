@@ -211,7 +211,7 @@ private:
 };
 
 PedigreeWindow::PedigreeWindow() : m_view(new View(this)) {
-	setWindowTitle("Pedigree");
+	setWindowTitle("Eyes of the World");
 	setCentralWidget(m_view);
 	setMinimumSize(420, 320);
 	resize(560, 480);
@@ -358,7 +358,7 @@ bool PedigreeWindow::saveReport(const QString &path) {
 }
 
 void PedigreeWindow::saveReportAs() {
-	const QString start = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/Pedigree Report.txt";
+	const QString start = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/Eyes of the World Report.txt";
 	const QString path = QFileDialog::getSaveFileName(this, "Save Report", start);
 	if (path.isEmpty()) {
 		return;

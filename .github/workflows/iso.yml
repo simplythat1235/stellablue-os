@@ -1,0 +1,79 @@
+name: Dark Star OS test ISO
+
+# Builds the live and install ISO (scripts/build-iso.sh) and publishes it as
+# a prerelease, so it can be downloaded and written to a USB stick. The
+# Debian workflow already runs the tests on the same commit, so the package
+# is built here without them. live-build needs mounts and chroots, hence the
+# privileged Debian 13 container.
+on:
+  push:
+    branches: [main, "claude/**"]
+    paths-ignore: ["docs/**", "**.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: iso-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  iso:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - name: Make room on the runner
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -af >/dev/null || true
+          df -h / /mnt
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Build the package and the ISO
+        run: |
+          sudo mkdir -p /mnt/iso-work
+          sudo docker run --rm --privileged \
+            -v "$GITHUB_WORKSPACE:/src" -v /mnt/iso-work:/var/tmp/zacos9-iso \
+            -e DEBIAN_FRONTEND=noninteractive -e DEB_BUILD_OPTIONS=nocheck \
+            debian:13 sh -euc '
+              apt-get update
+              apt-get install -y --no-install-recommends ca-certificates git \
+                build-essential debhelper devscripts fakeroot dpkg-dev \
+                live-build debootstrap squashfs-tools xorriso python3
+              git config --global --add safe.directory "*"
+              cd /src
+              sh scripts/build-debs.sh
+              DARKSTAR_SKIP_DEBS=1 sh scripts/build-iso.sh
+            '
+          ls -l build/iso
+
+      - name: Publish the ISO
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          iso=$(ls build/iso/*.iso | head -1)
+          short=$(echo "$GITHUB_SHA" | cut -c1-7)
+          tag="darkstar-test-$short"
+          name="darkstar-os-$short-amd64.iso"
+          mkdir -p out
+          sudo mv "$iso" "out/$name"
+          sudo chown "$(id -u)" "out/$name"
+          cd out
+          # A release asset can be at most 2 GiB: a bigger ISO goes up in
+          # parts, joined again with cat before writing it to a stick.
+          if [ "$(stat -c %s "$name")" -gt 2000000000 ]; then
+            sha256sum "$name" > SHA256SUMS
+            split -b 1900M -d "$name" "$name.part"
+            rm "$name"
+            note="The ISO is in parts: download them all, then run cat $name.part* > $name"
+          else
+            sha256sum "$name" > SHA256SUMS
+            note="Write $name to a USB stick with balenaEtcher or dd."
+          fi
+          gh release create "$tag" ./* --repo "$GITHUB_REPOSITORY" --prerelease \
+            --target "$GITHUB_SHA" --title "Dark Star OS test ISO ($short)" \
+            --notes "Test build from ${GITHUB_REF_NAME} at ${short}. $note"

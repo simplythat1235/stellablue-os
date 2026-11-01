@@ -8,6 +8,23 @@ This page is what's true now and what's next. What changed and when is in
 `git log`, `debian/changelog` and the release notes; how each part works is in
 [`docs/`](docs/) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Dark Star OS (this fork)
+
+This repository is Dark Star OS, a personal build of ZacOS 9 for rescued old
+Macs: Mac OS 9's lightness with OS X conveniences, a dancing bear in place
+of Happy Zac, and Grateful Dead names in place of the dog ones.
+
+- **In:** Cmd-Space launcher (fuzzel), Cmd-Shift-3/4 screenshots, volume
+  keys, tabbed Terminal (xfce4-terminal), right-click helpers, "Copy of"
+  names, Compressed Memory on by default, 32-bit EFI Macs in the installer,
+  Firefox ESR, htop, curl, openssh-server and fastfetch preinstalled.
+- **Left out of the ISO:** the emulators, Wine and balenaEtcher, so it stays
+  light and small enough for a GitHub Release (`.github/workflows/iso.yml`).
+- **Not renamed yet:** the Sniffer, the Collar, the Zac menu, Puppy Mode,
+  Zacintosh HD and the dog-bone cursor.
+- **Next:** Sniffer path bar, same-window folders and Quick Look; a dock,
+  workspaces and hot corners.
+
 ## Where things stand
 
 - **The Mac OS 9 plan is built.** Every work package in

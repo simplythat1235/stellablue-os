@@ -243,15 +243,15 @@ int main(int argc, char *argv[]) {
 	/* zacos9-wm draws every frame; Qt must not add its own. */
 	qputenv("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1");
 	QApplication app(argc, argv);
-	QApplication::setApplicationName("Dog Ears");
+	QApplication::setApplicationName("Ripple Notes");
 	QApplication::setQuitOnLastWindowClosed(false);
 	QGuiApplication::setDesktopFileName("zacos9-dogears"); /* Wayland app_id */
 	platinumShellInit();
 	QList<Note> notes = loadNotes(notesPath());
 	if (notes.isEmpty()) {
 		Note welcome;
-		welcome.text = "Welcome to Dog Ears.\n\nType a note here. Notes keep themselves, "
-			"and come back the next time you open Dog Ears.\n\nFile > New Note makes another; "
+		welcome.text = "Welcome to Ripple Notes.\n\nType a note here. Notes keep themselves, "
+			"and come back the next time you open Ripple Notes.\n\nFile > New Note makes another; "
 			"the Color menu changes this one's colour.";
 		welcome.size = QSize(260, 210);
 		notes << welcome;

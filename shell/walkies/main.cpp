@@ -32,7 +32,7 @@ constexpr uint32_t FACE = GRAY(0xD);
 class Walkies : public QWidget {
 public:
 	Walkies() : m_host(this) {
-		setWindowTitle("Walkies");
+		setWindowTitle("Ramble On");
 		setFixedSize(W, H);
 		m_list.frame = QRect(M, 30, W - 2 * M, 8 * PL_LIST_ROW_H + 2);
 		m_list.picked = [this](int) { updateButtons(); };
@@ -254,7 +254,7 @@ int main(int argc, char *argv[]) {
 	/* zacos9-wm draws every frame; Qt must not add its own. */
 	qputenv("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1");
 	QApplication app(argc, argv);
-	QApplication::setApplicationName("Walkies");
+	QApplication::setApplicationName("Ramble On");
 	QApplication::setDoubleClickInterval(pl_double_click_ms());
 	QGuiApplication::setDesktopFileName("zacos9-walkies"); /* Wayland app_id */
 	platinumShellInit();

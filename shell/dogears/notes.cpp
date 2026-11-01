@@ -74,7 +74,7 @@ bool saveNotes(const QString &path, const QList<Note> &notes) {
 QString noteTitle(const QString &text) {
 	QString line = text.section('\n', 0, 0).trimmed();
 	if (line.isEmpty()) {
-		return QStringLiteral("Dog Ears");
+		return QStringLiteral("Ripple Notes");
 	}
 	return line.size() > 28 ? line.left(27) + QChar(0x2026) : line;
 }
