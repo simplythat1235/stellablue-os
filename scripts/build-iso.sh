@@ -58,7 +58,7 @@ sudo_ find config/includes.chroot config/includes.binary config/package-lists co
 	-exec chmod 644 {} +
 sudo_ chmod 755 config/includes.chroot/usr/lib/live/config/2000-zacos9-greetd \
 	config/hooks/normal/9000-zacos9.hook.chroot \
-	config/hooks/normal/9100-darkstar.hook.chroot
+	config/hooks/normal/9100-stellablue.hook.chroot
 sudo_ find config/includes.chroot/usr/local/bin -type f -name 'stellablue-*' \
 	-exec chmod 755 {} +
 
