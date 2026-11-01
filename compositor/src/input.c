@@ -210,7 +210,7 @@ static bool handle_vt_switch(struct plat_server *server, xkb_keysym_t sym) {
 }
 
 /* Mac OS X conveniences (nathan's build): the keyboard's volume keys,
- * ⌘-Space for Spotlight (fuzzel) when it isn't switching layouts, and
+ * ⌘-Space for Searchlight (fuzzel) when it isn't switching layouts, and
  * ⇧⌘-3 / ⇧⌘-4 for a snapshot of the whole screen / a dragged area. The
  * keysym arrives shifted, so ⇧3 is "#" (US) or "£" (UK). */
 static bool handle_osx_keys(uint32_t mods, xkb_keysym_t sym) {
