@@ -609,9 +609,9 @@ int main(int argc, char **argv) {
 	check(hasFile(desktop, "untitled folder"), "New Folder works on Desktop");
 	desktop.selectByName("External folder");
 	Finder::instance().command("make-alias");
-	check(QFileInfo(path + "/External folder alias").isSymLink(),
+	check(QFileInfo(path + "/Alias of External folder").isSymLink(),
 		"Make Alias creates a navigable filesystem folder link on Desktop");
-	auto alias = makeItem(QFileInfo(path + "/External folder alias"));
+	auto alias = makeItem(QFileInfo(path + "/Alias of External folder"));
 	check(alias->isAlias && alias->isDir && alias->kind == PL_ICON_FOLDER,
 		"folder aliases keep folder navigation and alias appearance");
 	for (const QString &name : { QStringLiteral("Windows.exe"),
@@ -653,9 +653,9 @@ int main(int argc, char **argv) {
 	check(waitFor([&] { return FolderWindow::isOpen(path + "/External folder"); }),
 		"opening folder alias opens its real contents");
 	const auto copied = transferItems({alias->path}, path, true);
-	check(!copied.isEmpty() && QFileInfo(alias->path + " copy").isSymLink(),
+	check(!copied.isEmpty() && QFileInfo(path + "/Copy of Alias of External folder").isSymLink(),
 		"Option-copy preserves a folder alias rather than copying its target");
-	check(QFileInfo(alias->path + " copy").symLinkTarget() == path + "/External folder",
+	check(QFileInfo(path + "/Copy of Alias of External folder").symLinkTarget() == path + "/External folder",
 		"copied alias still points to original folder");
 
 	QFileDialog dialog(nullptr, "Save");
@@ -710,7 +710,7 @@ int main(int argc, char **argv) {
 		virtualMime.get(), Qt::LeftButton, Qt::NoModifier);
 	desktop.dropEvent(&virtualDrop);
 	check(virtualDrop.isAccepted() && virtualDrop.dropAction() == Qt::LinkAction &&
-		QFileInfo(path + "/Folder shortcut alias").isSymLink(),
+		QFileInfo(path + "/Alias of Folder shortcut").isSymLink(),
 		"virtual backed/app drag onto Desktop creates alias, never moves original");
 	bool appAlias = false;
 	for (auto &item : vfsList(vfsRoot() + "applications")) {
@@ -719,7 +719,7 @@ int main(int argc, char **argv) {
 			QDropEvent appDrop(QPointF(10, 400), Qt::MoveAction | Qt::LinkAction,
 				appMime.get(), Qt::LeftButton, Qt::NoModifier);
 			desktop.dropEvent(&appDrop);
-			const QString shortcut = path + "/" + item->name + " alias";
+			const QString shortcut = path + "/Alias of " + item->name;
 			auto shortcutItem = makeItem(QFileInfo(shortcut));
 			appAlias = appDrop.isAccepted() && QFileInfo(shortcut).symLinkTarget() == launcher.fileName()
 				&& shortcutItem->kind == PL_ICON_APPLICATION &&
@@ -746,7 +746,7 @@ int main(int argc, char **argv) {
 		Finder::instance().setFront(rootWindow);
 		rootWindow->selectByName("Applications");
 		Finder::instance().command("make-alias");
-		const QString appsAlias = path + "/Applications alias";
+		const QString appsAlias = path + "/Alias of Applications";
 		QString virtualTarget;
 		auto appsAliasItem = makeItem(QFileInfo(appsAlias));
 		check(QFileInfo(appsAlias).isSymLink() &&
@@ -764,7 +764,7 @@ int main(int argc, char **argv) {
 		Finder::instance().setFront(rootWindow);
 		rootWindow->selectByName("System Folder");
 		Finder::instance().command("make-alias");
-		const QString systemAlias = path + "/System Folder alias";
+		const QString systemAlias = path + "/Alias of System Folder";
 		auto systemAliasItem = makeItem(QFileInfo(systemAlias));
 		check(QFileInfo(systemAlias).isSymLink() && systemAliasItem->isAlias &&
 			systemAliasItem->kind == PL_ICON_SYSTEM_FOLDER,
@@ -785,7 +785,7 @@ int main(int argc, char **argv) {
 		Finder::instance().setFront(panels);
 		panels->selectByName("Mouse");
 		Finder::instance().command("make-alias");
-		const QString mouseAlias = path + "/Mouse alias";
+		const QString mouseAlias = path + "/Alias of Mouse";
 		QString mouseTarget;
 		auto mouseAliasItem = makeItem(QFileInfo(mouseAlias));
 		check(QFileInfo(mouseAlias).isSymLink() &&
@@ -794,7 +794,7 @@ int main(int argc, char **argv) {
 			mouseAliasItem->kind == PL_ICON_CP_MOUSE,
 			"an item in the System Folder can be aliased and keeps its icon");
 
-		desktop.selectByName("Applications alias");
+		desktop.selectByName("Alias of Applications");
 		Finder::instance().setFront(&desktop);
 		Finder::instance().command("show-original");
 		auto *rootAgain = FolderWindow::open(vfsRoot());
@@ -816,7 +816,7 @@ int main(int argc, char **argv) {
 				utilitiesMime.get(), Qt::LeftButton, Qt::NoModifier);
 			desktop.dropEvent(&utilitiesDrop);
 			check(utilitiesDrop.isAccepted() && utilitiesDrop.dropAction() == Qt::LinkAction &&
-				QFileInfo(path + "/Utilities alias").isSymLink(),
+				QFileInfo(path + "/Alias of Utilities").isSymLink(),
 				"dragging a Finder folder to Desktop creates an alias of it");
 		} else {
 			check(false, "the Utilities folder is in Applications for the alias drag");
@@ -904,18 +904,18 @@ int main(int argc, char **argv) {
 	QDropEvent linkDrop(QPointF(10, 400), Qt::MoveAction | Qt::LinkAction, &fileMime,
 		Qt::LeftButton, Qt::ControlModifier | Qt::AltModifier);
 	dropItems(&linkDrop, nullptr, path);
-	check(linkDrop.isAccepted() && QFileInfo(path + "/External file alias").isSymLink() &&
+	check(linkDrop.isAccepted() && QFileInfo(path + "/Alias of External file").isSymLink() &&
 		QFile::exists(path + "/External file"), "Command-Option drag makes alias without moving file");
 	check(!transferItems({path + "/External file"}, alias->path, false).isEmpty() &&
 		QFile::exists(path + "/External folder/External file"), "drop into folder alias writes to target");
 	closeAlert();
 	check(transferItems({path + "/External folder"}, alias->path, true).isEmpty(),
 		"copy into one's own folder alias is rejected before recursion");
-	check(QFile::link(path + "/missing", path + "/External file alias 2"),
+	check(QFile::link(path + "/missing", path + "/Alias 2 of External file"),
 		"create dangling alias collision");
-	check(createAlias(path + "/External folder", path, "External file") == "External file alias 3",
+	check(createAlias(path + "/External folder", path, "External file") == "Alias 3 of External file",
 		"alias naming also avoids dangling links");
-	auto unavailable = makeItem(QFileInfo(path + "/External file alias 2"));
+	auto unavailable = makeItem(QFileInfo(path + "/Alias 2 of External file"));
 	check(unavailable->isAlias && unavailable->kind == PL_ICON_DOCUMENT,
 		"unavailable alias retains alias identity with a generic icon");
 	check(QFile::link(path + "/Loop alias", path + "/Loop alias"),
@@ -948,7 +948,7 @@ int main(int argc, char **argv) {
 	check(!unsupportedLink.isAccepted(),
 		"source without link support is never told to delete its original after alias creation");
 
-	const QString toTrash = path + "/External folder alias copy";
+	const QString toTrash = path + "/Copy of Alias of External folder";
 	QMimeData trashMime;
 	trashMime.setUrls({QUrl::fromLocalFile(toTrash)});
 	/* Dropped on the Desktop's own Trash icon, as a drag from the Desktop
@@ -1129,7 +1129,7 @@ esac
 	confirmations.stop();
 	check(appTrashEntries(&error).size() == 1 && QFile::exists(home.path() + "/installed"),
 		"failed uninstall retains its record and application for retry or Put Away");
-	check(!QDir(trashFilesPath()).entryList({ "External folder alias copy*" }).isEmpty(),
+	check(!QDir(trashFilesPath()).entryList({ "Copy of Alias of External folder*" }).isEmpty(),
 		"failed uninstall does not delete unrelated ordinary Trash contents");
 	QFile::remove(home.path() + "/fail");
 	fixture(home.path() + "/leave-installed", "keep");
