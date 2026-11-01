@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=New Text File
+MimeType=inode/directory;
+Exec=darkstar-new-text-file %f
+NoDisplay=true

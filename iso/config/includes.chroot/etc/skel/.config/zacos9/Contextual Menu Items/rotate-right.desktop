@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Rotate Right
+MimeType=image/*;
+Exec=darkstar-rotate 90 %F
+NoDisplay=true

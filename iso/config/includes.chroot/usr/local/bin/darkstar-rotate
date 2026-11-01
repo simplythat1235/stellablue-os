@@ -1,0 +1,4 @@
+#!/bin/sh
+# darkstar-rotate 90|-90 FILE...: Rotate Left / Right, in place.
+deg=$1; shift
+exec mogrify -auto-orient -rotate "$deg" "$@"

@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Compress To ZIP
+MimeType=
+Exec=darkstar-zip %F
+NoDisplay=true

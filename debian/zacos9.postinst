@@ -62,16 +62,18 @@ guest_seat() {
 	done
 }
 
-# Compressed Memory is off until the Memory control panel turns it on, but
-# Debian's systemd-zram-generator turns a zram0 device on by default
-# (/usr/lib/systemd/zram-generator.conf). A file in /etc with no [zram0]
-# section overrides it; the panel's helper rewrites it from then on.
-zram_off_by_default() {
+# Dark Star OS runs on old Macs with 2-4 GB, where compressed memory is
+# the cheapest way to more room: on by default, up to half of memory, in
+# the form the Memory control panel's helper writes and reads back. A
+# file already there (the panel's choice, or the admin's) is left alone.
+zram_on_by_default() {
 	[ -e /etc/systemd/zram-generator.conf ] && return 0
 	mkdir -p /etc/systemd &&
-	printf '%s\n' "# Written by the zacos9 package: Compressed Memory is off." \
-		"# Turn it on in the Memory control panel." >/etc/systemd/zram-generator.conf ||
-		echo "zacos9: could not turn the default compressed memory off." >&2
+	printf '%s\n' "# Written by the zacos9 package: Compressed Memory is on." \
+		"# Change it in the Memory control panel." \
+		"[zram0]" "zram-size = ram * 50 / 100" "compression-algorithm = zstd" \
+		>/etc/systemd/zram-generator.conf ||
+		echo "zacos9: could not set up compressed memory." >&2
 }
 
 # The old RDP sharing (zacos9-screen-sharing, removed after 1.0.19) wrote
@@ -93,7 +95,7 @@ case "$1" in
 		grant_rawio
 		greeter_seat
 		guest_seat
-		zram_off_by_default
+		zram_on_by_default
 		redraw_grub_logo
 		make_shared_documents
 		remove_rdp_sharing

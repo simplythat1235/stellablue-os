@@ -442,7 +442,7 @@ static void seed_menu_items(const char *items_dir) {
 		{ "Plotter", { "zacos9-plotter.desktop" }, 1 },
 		{ "Stash", { "zacos9-stash.desktop" }, 1 },
 		{ "Theme Installer", { "zacos9-themeinstaller.desktop" }, 3 },
-		{ "Terminal", { "foot.desktop", "org.codeberg.dnkl.foot.desktop" }, 1 },
+		{ "Terminal", { "xfce4-terminal.desktop", "foot.desktop" }, 1 }, /* tabs */
 		{ "XTerm", { "debian-xterm.desktop", "xterm.desktop" }, 1 },
 	};
 	char *marker = g_build_filename(items_dir, ".zacos9-defaults", NULL);

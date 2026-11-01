@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Make PNG Copy
+MimeType=image/*;
+Exec=darkstar-copy-as png %F
+NoDisplay=true

@@ -714,9 +714,17 @@ step 5 "Installing boot loader..."
 # Output goes to stderr, which the installer window shows if this fails.
 # UEFI's is Debian's signed GRUB behind its signed shim, so it starts with
 # Secure Boot on (UTM, most PCs), however this session was started.
+# 2006-2008 Macs (and a few netbooks) have 64-bit processors behind 32-bit
+# EFI firmware: they start only an ia32 GRUB, which has no signed shim.
+efi_bits=$(cat /sys/firmware/efi/fw_platform_size 2>/dev/null || echo 64)
 efi() {
-	chroot "$TARGET" grub-install --target=x86_64-efi --efi-directory=/boot/efi \
-		--uefi-secure-boot "$@" >&2
+	if [ "$efi_bits" = 32 ]; then
+		chroot "$TARGET" grub-install --target=i386-efi --efi-directory=/boot/efi \
+			"$@" >&2
+	else
+		chroot "$TARGET" grub-install --target=x86_64-efi --efi-directory=/boot/efi \
+			--uefi-secure-boot "$@" >&2
+	fi
 }
 bios() { chroot "$TARGET" grub-install --target=i386-pc "$grub_target" >&2; }
 if $uefi; then
@@ -724,7 +732,9 @@ if $uefi; then
 	efi --bootloader-id=ZacOS9 || efi --bootloader-id=ZacOS9 --no-nvram
 	# The fallback path every UEFI firmware starts on its own, which is what
 	# a Mac's startup picker finds. Left alone if another system put one there.
-	if [ ! -e "$TARGET/boot/efi/EFI/BOOT/BOOTX64.EFI" ]; then
+	fallback=BOOTX64.EFI
+	[ "$efi_bits" = 32 ] && fallback=BOOTIA32.EFI
+	if [ ! -e "$TARGET/boot/efi/EFI/BOOT/$fallback" ]; then
 		efi --removable --no-nvram
 	fi
 	# A whole disk has both boot partitions: GRUB goes in each, so it also

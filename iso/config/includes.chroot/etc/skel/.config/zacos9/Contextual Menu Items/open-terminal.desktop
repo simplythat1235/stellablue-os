@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Open Terminal Here
+MimeType=inode/directory;
+Exec=darkstar-terminal-here %f
+NoDisplay=true

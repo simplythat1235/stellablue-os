@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Make JPEG Copy
+MimeType=image/*;
+Exec=darkstar-copy-as jpg %F
+NoDisplay=true

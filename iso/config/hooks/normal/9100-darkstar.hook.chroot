@@ -1,0 +1,13 @@
+#!/bin/sh
+# Dark Star OS: small conveniences on top of ZacOS 9.
+set -e
+# Every new Terminal window shows the machine at a glance.
+if ! grep -q fastfetch /etc/skel/.bashrc 2>/dev/null; then
+	cat >>/etc/skel/.bashrc <<'RC'
+
+# Dark Star OS: what this machine is, in each new Terminal window.
+case $- in *i*) command -v fastfetch >/dev/null && fastfetch ;; esac
+RC
+fi
+# Firefox ESR is the web browser for programs that ask the system for one.
+update-alternatives --set x-www-browser /usr/bin/firefox-esr 2>/dev/null || true

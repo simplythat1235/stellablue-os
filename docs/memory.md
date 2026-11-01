@@ -35,7 +35,8 @@ of memory. On, a zram swap device keeps memory that hasn't been used for a
 while compressed in RAM (zstd), so there is room for more before anything
 goes to virtual memory on disk. The line under the menu shows the device's
 size, what is in it and how much RAM that takes after compression
-(`/proc/swaps`, `/sys/block/zram0/mm_stat`). Off by default.
+(`/proc/swaps`, `/sys/block/zram0/mm_stat`). On by default in Dark Star OS (up to half of memory, written by the
+package on first install; `debian/zacos9.postinst`).
 
 `zram PERCENT` writes `/etc/systemd/zram-generator.conf`:
 

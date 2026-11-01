@@ -1,6 +1,5 @@
 # ZacOS 9 (built by scripts/build-debs.sh, in config/packages.chroot)
 zacos9
-zacos9-emulators
 
 # Login: greetd with a text greeter; live sessions log straight in
 greetd
@@ -60,8 +59,23 @@ grub-efi-amd64-bin
 grub-efi-amd64-signed
 shim-signed
 grub-pc-bin
+# 2006-2008 Macs: 64-bit processors behind 32-bit EFI firmware
+grub-efi-ia32-bin
 efibootmgr
 
 # AppImages (installed by dropping them onto Applications) mount
 # themselves through FUSE 2.
 libfuse2t64
+
+# Dark Star OS: OS X conveniences that stay light
+firefox-esr
+xfce4-terminal
+fuzzel
+zathura
+zathura-pdf-poppler
+htop
+curl
+openssh-server
+fastfetch
+zip
+unzip

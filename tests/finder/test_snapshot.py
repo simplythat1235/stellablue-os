@@ -159,13 +159,14 @@ class WrapperTests(unittest.TestCase):
             "SNAPSHOT_LOG": str(self.root / "log"),
             "TEST_STATUS": "0",
         }
-        self.tool("slurp", 'echo "10,20 30x40"\nexit "${SELECT_STATUS:-0}"')
+        self.tool("slurp", 'echo "slurp" >> "$SNAPSHOT_LOG"\necho "10,20 30x40"\n'
+                  'exit "${SELECT_STATUS:-0}"')
         self.tool("xdg-user-dir", 'echo "$HOME/Desktop"')
         self.tool("sleep", "exit 0")
         self.tool("zacos9-capture",
                   'echo "capture:$*" >> "$SNAPSHOT_LOG"\n'
                   '[ "$TEST_STATUS" = 0 ] || exit "$TEST_STATUS"\n'
-                  'printf "PNG" > "$3"')
+                  'for last; do :; done\nprintf "PNG" > "$last"')
         self.tool("wl-copy", 'echo "copy:$*" >> "$SNAPSHOT_LOG"\ncat >/dev/null\n'
                   'exit "${COPY_STATUS:-0}"')
         for name in ("grim", "gnome-screenshot", "xdg-open"):
@@ -176,9 +177,9 @@ class WrapperTests(unittest.TestCase):
         path.write_text("#!/bin/sh\n" + body + "\n")
         path.chmod(0o700)
 
-    def run_wrapper(self, **env):
+    def run_wrapper(self, *args, **env):
         return subprocess.run(
-            [str(self.script)], env=self.env | env, capture_output=True,
+            [str(self.script), *args], env=self.env | env, capture_output=True,
             text=True, timeout=5,
         )
 
@@ -201,16 +202,25 @@ class WrapperTests(unittest.TestCase):
         self.assertNotIn("copy:", (self.root / "log").read_text())
         self.assertNotIn("UNSAFE", (self.root / "log").read_text())
 
+    def test_whole_screen_skips_selection(self):
+        result = self.run_wrapper("--screen")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / "Desktop" / "Picture 1.png").read_text(), "PNG")
+        log = (self.root / "log").read_text()
+        self.assertNotIn("slurp", log)
+        self.assertIn("capture:" + str(self.root / "Desktop" / "Picture 1.png"), log)
+        self.assertIn("copy:--type image/png", log)
+
     def test_cancel_does_not_capture(self):
         result = self.run_wrapper(SELECT_STATUS="1")
         self.assertEqual(result.returncode, 0)
-        self.assertFalse((self.root / "log").exists())
+        self.assertNotIn("capture:", (self.root / "log").read_text())
 
     def test_selection_failure_is_reported(self):
         result = self.run_wrapper(SELECT_STATUS="2")
         self.assertEqual(result.returncode, 2)
         self.assertIn("selection failed", result.stderr)
-        self.assertFalse((self.root / "log").exists())
+        self.assertNotIn("capture:", (self.root / "log").read_text())
 
     def test_clipboard_failure_preserves_picture_and_reports_error(self):
         result = self.run_wrapper(COPY_STATUS="1")
