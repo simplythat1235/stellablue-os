@@ -96,10 +96,20 @@ int main(void) {
 				}
 			}
 		}
+		/* The baseline from the first letter alone: the title may have
+		 * descenders (g, p, a comma) that reach below it. */
+		int base = -1;
+		for (int py = by + s; py < by + 70 * s; py++) {
+			for (int qx = l; qx >= 0 && qx < l + 4 * s; qx++) {
+				if (px[py * W + qx] == C_BLACK) {
+					base = py;
+				}
+			}
+		}
 		const int mid = (l + r + 1) / 2 - bx;
 		snprintf(what, sizeof(what), "scale %d: the title, centred on its mark, on its baseline", s);
-		check(r > l && abs(mid - PL_WELCOME_TITLE_X * s) <= s && b == by + (PL_WELCOME_BASELINE + 1) * s - 1 &&
-			t < b - 6 * s, what);
+		check(r > l && abs(mid - PL_WELCOME_TITLE_X * s) <= s && base == by + (PL_WELCOME_BASELINE + 1) * s - 1 &&
+			t < base - 6 * s && b >= base, what);
 
 		const char *png = getenv("WELCOME_PNG");
 		if (png && s == 2) {
