@@ -314,8 +314,18 @@ struct TransferTask {
 	quint64 units = 0;
 };
 
+/* "Alias of Report.txt", "Alias 2 of Report.txt", ... (or "Copy of"): the
+ * label goes in front so the name keeps its ending (.jpg stays a picture).
+ * An empty label keeps the plain name: "Report.txt", "Report.txt 2". */
+static QString numberedName(const QString &name, const QString &label, int n) {
+	if (label.isEmpty()) {
+		return n < 2 ? name : name + " " + QString::number(n);
+	}
+	return n < 2 ? label + " of " + name : label + " " + QString::number(n) + " of " + name;
+}
+
 QString createAlias(const QString &target, const QString &destDir, const QString &name,
-		const QString &suffix) {
+		const QString &label) {
 	const QFileInfo original(target);
 	if (!original.exists() || name.isEmpty() || name.contains('/') || name == "." || name == ".." ||
 			!QFileInfo(destDir).isDir()) {
@@ -324,10 +334,10 @@ QString createAlias(const QString &target, const QString &destDir, const QString
 		return {};
 	}
 	QDir destination(destDir);
-	QString candidate = name + suffix;
+	QString candidate = numberedName(name, label, 1);
 	for (int i = 2; QFileInfo(destination.filePath(candidate)).exists() ||
 			QFileInfo(destination.filePath(candidate)).isSymLink(); i++) {
-		candidate = name + suffix + " " + QString::number(i);
+		candidate = numberedName(name, label, i);
 	}
 	if (!QFile::link(original.absoluteFilePath(), destination.filePath(candidate))) {
 		Alert::ask("The alias could not be created in " + destDir + ". Check folder permissions.",
@@ -344,7 +354,7 @@ QString createAlias(const QString &target, const QString &destDir, const QString
 }
 
 QString createVirtualAlias(const QString &vfsPath, const QString &destDir, const QString &name,
-		const QString &suffix) {
+		const QString &label) {
 	if (!vfsNode(vfsPath) || name.isEmpty() || name.contains('/') || name == "." || name == ".." ||
 			!QFileInfo(destDir).isDir()) {
 		Alert::ask("The alias cannot be made because its original or destination is unavailable.",
@@ -352,10 +362,10 @@ QString createVirtualAlias(const QString &vfsPath, const QString &destDir, const
 		return {};
 	}
 	QDir destination(destDir);
-	QString candidate = name + suffix;
+	QString candidate = numberedName(name, label, 1);
 	for (int i = 2; QFileInfo(destination.filePath(candidate)).exists() ||
 			QFileInfo(destination.filePath(candidate)).isSymLink(); i++) {
-		candidate = name + suffix + " " + QString::number(i);
+		candidate = numberedName(name, label, i);
 	}
 	if (!QFile::link(aliasVirtualLinkTarget(vfsPath), destination.filePath(candidate))) {
 		Alert::ask("The alias could not be created in " + destDir + ". Check folder permissions.",
@@ -365,15 +375,11 @@ QString createVirtualAlias(const QString &vfsPath, const QString &destDir, const
 	return candidate;
 }
 
-/* "Report copy", "Report copy 2", ... (Mac OS 8 naming). */
+/* "Copy of Report.txt", "Copy 2 of Report.txt", ... (not Mac OS 8's
+ * "Report.txt copy", which hid the file's ending). */
 static QString copyName(const QDir &dir, const QString &name, const QSet<QString> &reserved) {
-	QString base = name + " copy";
-	if (!dir.exists(base) && !QFileInfo(dir.filePath(base)).isSymLink() &&
-			!reserved.contains(dir.filePath(base))) {
-		return base;
-	}
-	for (int i = 2;; i++) {
-		QString candidate = base + " " + QString::number(i);
+	for (int i = 1;; i++) {
+		QString candidate = numberedName(name, QStringLiteral("Copy"), i);
 		if (!dir.exists(candidate) && !QFileInfo(dir.filePath(candidate)).isSymLink() &&
 				!reserved.contains(dir.filePath(candidate))) {
 			return candidate;

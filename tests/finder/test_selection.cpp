@@ -375,8 +375,8 @@ int main(int argc, char **argv) {
 	touch(classic);
 	touch(fork);
 	check(!transferItems({ classic }, folder, true).isEmpty() &&
-		QFile::exists(folder + "/Classic Sound copy") &&
-		QFile::exists(folder + "/._Classic Sound copy"),
+		QFile::exists(folder + "/Copy of Classic Sound") &&
+		QFile::exists(folder + "/._Copy of Classic Sound"),
 		"Option-copy preserves a classic file's hidden resource fork under its new name");
 	check(!transferItems({ classic }, target, false).isEmpty() &&
 		QFile::exists(target + "/Classic Sound") && QFile::exists(target + "/._Classic Sound") &&
