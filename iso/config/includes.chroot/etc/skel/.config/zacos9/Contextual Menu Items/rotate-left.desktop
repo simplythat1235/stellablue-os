@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Rotate Left
+MimeType=image/*;
+Exec=stellablue-rotate -90 %F
+NoDisplay=true

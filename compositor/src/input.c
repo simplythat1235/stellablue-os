@@ -45,7 +45,8 @@ static bool keeps_command_key(struct plat_server *server, struct wlr_surface *su
 			view->impl->get_surface(view) != surface) {
 		return false;
 	}
-	return strcmp(view->app_id, "foot") == 0 || strcmp(view->app_id, "footclient") == 0;
+	return strcmp(view->app_id, "foot") == 0 || strcmp(view->app_id, "footclient") == 0 ||
+		strcmp(view->app_id, "xfce4-terminal") == 0;
 }
 
 /* The Windows/Super key is the Mac's ⌘ key. Linux apps expect Ctrl for
@@ -208,6 +209,42 @@ static bool handle_vt_switch(struct plat_server *server, xkb_keysym_t sym) {
 	return true;
 }
 
+/* Mac OS X conveniences (nathan's build): the keyboard's volume keys,
+ * ⌘-Space for Searchlight (fuzzel) when it isn't switching layouts, and
+ * ⇧⌘-3 / ⇧⌘-4 for a snapshot of the whole screen / a dragged area. The
+ * keysym arrives shifted, so ⇧3 is "#" (US) or "£" (UK). */
+static bool handle_osx_keys(uint32_t mods, xkb_keysym_t sym) {
+	const uint32_t plain = mods & ~(uint32_t)(WLR_MODIFIER_CAPS | WLR_MODIFIER_MOD2);
+	switch (sym) {
+	case XKB_KEY_XF86AudioRaiseVolume:
+		spawn("pactl set-sink-mute @DEFAULT_SINK@ 0; pactl set-sink-volume @DEFAULT_SINK@ +5%");
+		return true;
+	case XKB_KEY_XF86AudioLowerVolume:
+		spawn("pactl set-sink-volume @DEFAULT_SINK@ -5%");
+		return true;
+	case XKB_KEY_XF86AudioMute:
+		spawn("pactl set-sink-mute @DEFAULT_SINK@ toggle");
+		return true;
+	default:
+		break;
+	}
+	if (sym == XKB_KEY_space && plain == WLR_MODIFIER_LOGO) {
+		spawn("pgrep -u \"$(id -u)\" -x fuzzel >/dev/null || exec fuzzel");
+		return true;
+	}
+	if (plain == (WLR_MODIFIER_LOGO | WLR_MODIFIER_SHIFT)) {
+		if (sym == XKB_KEY_3 || sym == XKB_KEY_numbersign || sym == XKB_KEY_sterling) {
+			spawn_component(NULL, "zacos9-snapshot", " --screen");
+			return true;
+		}
+		if (sym == XKB_KEY_4 || sym == XKB_KEY_dollar) {
+			spawn_component(NULL, "zacos9-snapshot", "");
+			return true;
+		}
+	}
+	return false;
+}
+
 /* Compositor-level shortcuts. Returns true if the key was consumed. */
 static bool handle_keybinding(struct plat_server *server, uint32_t mods,
 		xkb_keysym_t sym) {
@@ -232,6 +269,9 @@ static bool handle_keybinding(struct plat_server *server, uint32_t mods,
 		}
 	}
 	if (handle_layout_switch(server, mods, sym)) {
+		return true;
+	}
+	if (handle_osx_keys(mods, sym)) {
 		return true;
 	}
 	/* Exit a full-screen window: F12, so the user can reach The Collar and

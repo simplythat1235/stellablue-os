@@ -207,7 +207,7 @@ if [ "${1:-}" = --update ]; then
 	step 1 "Checking the installed system..."
 	mount "$part" "$TARGET" || fail "The disk couldn't be opened. Check it with Disk First Aid (fsck), then try again"
 	installed=$(installed_version "$TARGET")
-	[ -n "$installed" ] || fail "There is no ZacOS 9 on that disk to update"
+	[ -n "$installed" ] || fail "There is no Stella Blue OS on that disk to update"
 	debs=
 	for dir in /run/live/medium/zacos9 /lib/live/mount/medium/zacos9 /cdrom/zacos9; do
 		for f in "$dir"/zacos9_*.deb "$dir"/zacos9-emulators_*.deb "$dir"/balena-etcher_*.deb; do
@@ -215,7 +215,7 @@ if [ "${1:-}" = --update ]; then
 		done
 		[ -n "$debs" ] && break
 	done
-	[ -n "$debs" ] || fail "This installer disk doesn't carry the ZacOS 9 packages an update needs"
+	[ -n "$debs" ] || fail "This installer disk doesn't carry the Stella Blue OS packages an update needs"
 	# The boot partition, as the installed system mounts it (kernel updates
 	# write there).
 	efi_dev=$(awk '$2 == "/boot/efi" { print $1 }' "$TARGET/etc/fstab" 2>/dev/null | head -1)
@@ -255,7 +255,7 @@ if [ "${1:-}" = --update ]; then
 	in_target apt-get -q update >&2 || online=false
 
 	new_version=$(dpkg-deb -f "$(ls "$cache"/zacos9_*.deb | head -1)" Version)
-	step 4 "Installing ZacOS 9 $new_version..."
+	step 4 "Installing Stella Blue OS $new_version..."
 	# The packages by their paths inside the disk, named one by one: a
 	# wildcard here would be expanded (or not) by this shell, against the
 	# live system's /var/cache, since chroot runs apt-get directly.
@@ -266,16 +266,16 @@ if [ "${1:-}" = --update ]; then
 	# shellcheck disable=SC2086 # a list of plain file paths
 	if ! in_target apt-get $apt_opts install $target_debs >&2; then
 		if $online; then
-			fail "ZacOS 9 $new_version couldn't be installed on the disk"
+			fail "Stella Blue OS $new_version couldn't be installed on the disk"
 		fi
-		fail "ZacOS 9 $new_version needs software from Debian, and this computer isn't on the internet. Connect it (TCP/IP control panel) and try again"
+		fail "Stella Blue OS $new_version needs software from Debian, and this computer isn't on the internet. Connect it (TCP/IP control panel) and try again"
 	fi
 
 	step 5 "Updating Debian software..."
 	if $online; then
 		# shellcheck disable=SC2086
 		in_target apt-get $apt_opts --with-new-pkgs upgrade >&2 ||
-			fail "ZacOS 9 is updated, but Debian's updates couldn't be installed"
+			fail "Stella Blue OS is updated, but Debian's updates couldn't be installed"
 	fi
 
 	step 6 "Finishing..."
@@ -495,7 +495,7 @@ if [ "$dev_type" = "part" ]; then
 		gpt)
 			lsblk -l -n -o PARTTYPE "$parent_disk" 2>/dev/null |
 				grep -qix 21686148-6449-6e6f-744e-656564454649 ||
-				fail "$parent_disk has no BIOS boot partition, which this computer needs to start ZacOS 9 from it. Choose Next to What's There, which makes one, or erase the whole disk"
+				fail "$parent_disk has no BIOS boot partition, which this computer needs to start Stella Blue OS from it. Choose Next to What's There, which makes one, or erase the whole disk"
 			;;
 		dos)
 			first=$(lsblk -l -n -o NAME,TYPE "$parent_disk" | awk '$2 == "part" { print $1 }' |
@@ -672,7 +672,7 @@ GRUB_DEFAULT=0
 GRUB_TIMEOUT=0
 GRUB_TIMEOUT_STYLE=hidden
 $grub_prober
-GRUB_DISTRIBUTOR="ZacOS 9"
+GRUB_DISTRIBUTOR="Stella Blue OS"
 GRUB_CMDLINE_LINUX_DEFAULT="$kargs"
 GRUB_CMDLINE_LINUX=""
 $grub_gfx
@@ -691,7 +691,7 @@ live_user=$(tr ' ' '\n' < /proc/cmdline | sed -n 's/^username=//p')
 chroot "$TARGET" userdel --force --remove "${live_user:-user}" 2>/dev/null || true
 rm -f "$TARGET/etc/sudoers.d/live" "$TARGET/usr/share/polkit-1/rules.d/sudo_on_live.rules"
 chroot "$TARGET" useradd --create-home --home-dir /var/lib/zacos9-setup --shell /bin/sh \
-	--comment "ZacOS 9 Setup" zacos9-setup
+	--comment "Stella Blue OS Setup" zacos9-setup
 chroot "$TARGET" passwd --lock zacos9-setup >/dev/null
 # netdev: NetworkManager lets it save networks the Setup Assistant's
 # Internet page joins (system-wide, so the real account keeps them).
@@ -714,9 +714,17 @@ step 5 "Installing boot loader..."
 # Output goes to stderr, which the installer window shows if this fails.
 # UEFI's is Debian's signed GRUB behind its signed shim, so it starts with
 # Secure Boot on (UTM, most PCs), however this session was started.
+# 2006-2008 Macs (and a few netbooks) have 64-bit processors behind 32-bit
+# EFI firmware: they start only an ia32 GRUB, which has no signed shim.
+efi_bits=$(cat /sys/firmware/efi/fw_platform_size 2>/dev/null || echo 64)
 efi() {
-	chroot "$TARGET" grub-install --target=x86_64-efi --efi-directory=/boot/efi \
-		--uefi-secure-boot "$@" >&2
+	if [ "$efi_bits" = 32 ]; then
+		chroot "$TARGET" grub-install --target=i386-efi --efi-directory=/boot/efi \
+			"$@" >&2
+	else
+		chroot "$TARGET" grub-install --target=x86_64-efi --efi-directory=/boot/efi \
+			--uefi-secure-boot "$@" >&2
+	fi
 }
 bios() { chroot "$TARGET" grub-install --target=i386-pc "$grub_target" >&2; }
 if $uefi; then
@@ -724,7 +732,9 @@ if $uefi; then
 	efi --bootloader-id=ZacOS9 || efi --bootloader-id=ZacOS9 --no-nvram
 	# The fallback path every UEFI firmware starts on its own, which is what
 	# a Mac's startup picker finds. Left alone if another system put one there.
-	if [ ! -e "$TARGET/boot/efi/EFI/BOOT/BOOTX64.EFI" ]; then
+	fallback=BOOTX64.EFI
+	[ "$efi_bits" = 32 ] && fallback=BOOTIA32.EFI
+	if [ ! -e "$TARGET/boot/efi/EFI/BOOT/$fallback" ]; then
 		efi --removable --no-nvram
 	fi
 	# A whole disk has both boot partitions: GRUB goes in each, so it also

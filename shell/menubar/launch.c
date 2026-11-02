@@ -431,18 +431,18 @@ static void seed_menu_items(const char *items_dir) {
 		const char *ids[2]; /* the first installed one */
 		int since;
 	} defaults[] = {
-		{ "Bark Recorder", { "zacos9-barkrecorder.desktop" }, 1 },
+		{ "Playin' Recorder", { "zacos9-barkrecorder.desktop" }, 1 },
 		{ "Calculator", { "zacos9-calculator.desktop" }, 1 },
-		{ "Dog Ears", { "zacos9-dogears.desktop" }, 1 },
+		{ "Ripple Notes", { "zacos9-dogears.desktop" }, 1 },
 		{ "Jigsaw Puzzle", { "zacos9-jigsaw.desktop" }, 1 },
 		{ "Key Tags", { "zacos9-keytags.desktop" }, 1 },
 		{ "Notepad", { "zacos9-notepad.desktop" }, 1 },
-		{ "Pedigree", { "zacos9-pedigree.desktop" }, 1 },
+		{ "Eyes of the World", { "zacos9-pedigree.desktop" }, 1 },
 		{ "Photo Booth", { "zacos9-photobooth.desktop" }, 2 },
 		{ "Plotter", { "zacos9-plotter.desktop" }, 1 },
 		{ "Stash", { "zacos9-stash.desktop" }, 1 },
 		{ "Theme Installer", { "zacos9-themeinstaller.desktop" }, 3 },
-		{ "Terminal", { "foot.desktop", "org.codeberg.dnkl.foot.desktop" }, 1 },
+		{ "Terminal", { "xfce4-terminal.desktop", "foot.desktop" }, 1 }, /* tabs */
 		{ "XTerm", { "debian-xterm.desktop", "xterm.desktop" }, 1 },
 	};
 	char *marker = g_build_filename(items_dir, ".zacos9-defaults", NULL);
@@ -493,13 +493,13 @@ void launch_fill_logo_menu(struct mb_menu *menu, const struct app *apps, int n_a
 	{
 		char command[PATH_MAX + 64];
 		sibling_program("zacos9-store", command, sizeof(command));
-		with_kind(add_item(menu, "New Tricks", true, ACT_LAUNCH, command), PL_ICON_APPLICATION);
+		with_kind(add_item(menu, "Deal", true, ACT_LAUNCH, command), PL_ICON_APPLICATION);
 	}
 	/* New ZacOS 9 releases and Debian's own updates. */
 	{
 		char command[PATH_MAX + 64];
 		sibling_program("zacos9-update", command, sizeof(command));
-		with_kind(add_item(menu, "Fetch Updates", true, ACT_LAUNCH, command), PL_ICON_EXT_OPENTRANSPORT);
+		with_kind(add_item(menu, "Touch of Grey", true, ACT_LAUNCH, command), PL_ICON_EXT_OPENTRANSPORT);
 	}
 	/* Force Quit: the open applications, front-most first; the Finder
 	 * asks first, then has zacos9-wm end the one chosen. */

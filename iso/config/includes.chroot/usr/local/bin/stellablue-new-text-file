@@ -1,0 +1,5 @@
+#!/bin/sh
+# stellablue-new-text-file FOLDER: an empty "untitled.txt" (then 2, 3...).
+f="$1/untitled.txt"; n=2
+while [ -e "$f" ]; do f="$1/untitled $n.txt"; n=$((n+1)); done
+: > "$f"

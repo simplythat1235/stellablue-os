@@ -1015,7 +1015,7 @@ void AboutWindow::paintEvent(QPaintEvent *) {
 	pl_fill(c, 0, 0, W - 1, H - 1, FACE);
 
 	pl_image_blend(c, 22, 10, logo_pixels_hq(), PL_LOGO_SIZE_HQ, PL_LOGO_SIZE_HQ, false);
-	Text title("ZacOS 9", 450, PL_FONT_SYSTEM);
+	Text title("Stella Blue OS", 450, PL_FONT_SYSTEM);
 	pl_text(c, title.t, 104, 34, C_BLACK);
 	Text release(m_version, 450, PL_FONT_VIEWS);
 	pl_text(c, release.t, 104, 55, GRAY(0x4));

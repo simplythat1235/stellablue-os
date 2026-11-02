@@ -12,6 +12,10 @@ test('screen-sharing-session', find_program('dbus-run-session'),
 install_data('zacos9-mimeapps.list', install_dir: get_option('datadir') / 'zacos9' / 'xdg')
 install_data('foot/foot.ini',
   install_dir: get_option('datadir') / 'zacos9' / 'xdg' / 'foot')
+install_data('fuzzel/fuzzel.ini',
+  install_dir: get_option('datadir') / 'zacos9' / 'xdg' / 'fuzzel')
+install_data('xfce4/terminal/accels.scm',
+  install_dir: get_option('datadir') / 'zacos9' / 'xdg' / 'xfce4' / 'terminal')
 install_data('xdg-desktop-portal/zacos9-portals.conf',
   install_dir: get_option('datadir') / 'zacos9' / 'xdg' / 'xdg-desktop-portal')
 install_data('xdg-desktop-portal/portals/zacos9.portal',

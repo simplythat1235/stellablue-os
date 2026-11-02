@@ -36,6 +36,6 @@ int main(int argc, char **argv) {
 	setCurrentLocation("Home");
 	CHECK(currentLocation() == "Home");
 	CHECK(deleteLocation("Home") && locationNames().isEmpty());
-	std::puts("ok: Walkies remembers and switches locations");
+	std::puts("ok: Ramble On remembers and switches locations");
 	return 0;
 }

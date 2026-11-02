@@ -29,7 +29,7 @@ int main() {
 		back[0].size == QSize(300, 200) && back[0].hasPosition && back[0].position == QPoint(40, 60),
 		"and read back with their colour, size and place");
 	check(!back[1].hasPosition && back[1].color == NoteColor::Yellow, "a note never placed has no place; Yellow is the default");
-	check(noteTitle(a.text) == "Buy biscuits" && noteTitle("  ") == "Dog Ears" &&
+	check(noteTitle(a.text) == "Buy biscuits" && noteTitle("  ") == "Ripple Notes" &&
 		noteTitle(QString(40, 'x')).size() == 28, "a note's title is its first line, shortened");
 	check(QString(noteColorName(NoteColor::Gray)) == "Gray" && noteColorRgb(NoteColor::Yellow) == 0xFFFFA0,
 		"colours have names and values");

@@ -501,7 +501,7 @@ BesidePlan besidePlan(const DiskDrive &d, bool uefi, const QString &name) {
 		return plan;
 	}
 	if (d.table.isEmpty()) {
-		plan.why = "This drive has no partition table, so ZacOS 9 can only go on it by erasing it.";
+		plan.why = "This drive has no partition table, so Stella Blue OS can only go on it by erasing it.";
 		return plan;
 	}
 	/* The boot partition this computer starts up from, if the drive hasn't one. */
@@ -560,7 +560,7 @@ BesidePlan besidePlan(const DiskDrive &d, bool uefi, const QString &name) {
 			}
 		}
 		if (shrink < 0 || spare < wanted) {
-			plan.why = "There isn't room for ZacOS 9 on this drive: it needs 16 GB. Free some space first, "
+			plan.why = "There isn't room for Stella Blue OS on this drive: it needs 16 GB. Free some space first, "
 				"in the other system or in Disk Setup, or erase the whole disk.";
 			return plan;
 		}
@@ -591,7 +591,7 @@ BesidePlan besidePlan(const DiskDrive &d, bool uefi, const QString &name) {
 	plan.offset = zacos.offset;
 	if (!allowed(d, plan.ops)) {
 		plan.ops.clear();
-		plan.why = "There isn't room for ZacOS 9 on this drive. Free some space first, or erase the whole disk.";
+		plan.why = "There isn't room for Stella Blue OS on this drive. Free some space first, or erase the whole disk.";
 	}
 	return plan;
 }

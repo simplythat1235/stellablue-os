@@ -5,7 +5,13 @@
 # put on the clipboard too, ready to paste.
 #
 # Uses native committed-frame capture, not wlroots screencopy.
+#
+#   zacos9-snapshot            drag a rectangle (⇧⌘-4)
+#   zacos9-snapshot --screen   the whole screen, no dragging (⇧⌘-3)
 set -u
+
+whole=false
+[ "${1:-}" = --screen ] && whole=true
 
 capture=$(dirname "$(readlink -f "$0")")/zacos9-capture
 if [ ! -x "$capture" ]; then
@@ -19,13 +25,16 @@ for tool in slurp wl-copy; do
 	}
 done
 
-geometry=$(slurp -d -w 1 -c '#000000ff' -b '#00000030' -s '#00000000' -F "DejaVu Sans")
-status=$?
-case $status in
-	0) [ -n "$geometry" ] || exit 0 ;;
-	1) exit 0 ;; # slurp uses status 1 for a cancelled selection.
-	*) echo "zacos9-snapshot: region selection failed ($status)." >&2; exit "$status" ;;
-esac
+geometry=
+if ! $whole; then
+	geometry=$(slurp -d -w 1 -c '#000000ff' -b '#00000030' -s '#00000000' -F "DejaVu Sans")
+	status=$?
+	case $status in
+		0) [ -n "$geometry" ] || exit 0 ;;
+		1) exit 0 ;; # slurp uses status 1 for a cancelled selection.
+		*) echo "zacos9-snapshot: region selection failed ($status)." >&2; exit "$status" ;;
+	esac
+fi
 desktop=$(xdg-user-dir DESKTOP 2>/dev/null)
 [ -n "$desktop" ] && [ "$desktop" != "$HOME" ] || desktop=$HOME/Desktop
 mkdir -p "$desktop" || exit 1
@@ -36,7 +45,11 @@ done
 file="$desktop/Picture $n.png"
 
 sleep 0.2
-"$capture" --geometry "$geometry" "$file" || exit 1
+if [ -n "$geometry" ]; then
+	"$capture" --geometry "$geometry" "$file" || exit 1
+else
+	"$capture" "$file" || exit 1
+fi
 if ! wl-copy --type image/png <"$file"; then
 	echo "zacos9-snapshot: the picture was saved, but clipboard copying failed: $file" >&2
 	exit 1

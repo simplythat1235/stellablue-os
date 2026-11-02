@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Set As Desktop Picture
+MimeType=image/*;
+Exec=stellablue-set-desktop-picture %f
+NoDisplay=true

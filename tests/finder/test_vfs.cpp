@@ -578,7 +578,7 @@ int main(int argc, char **argv) {
 	QStringList panels = namesIn(vfsPathFor("system-folder/control-panels"));
 	check(panels.contains("Appearance") && panels.contains("File Sharing") &&
 		panels.contains("TCP/IP"), "Control Panels lists the control panels");
-	check(panels.contains("Bluetooth") && panels.contains("Users") && panels.contains("Walkies") &&
+	check(panels.contains("Bluetooth") && panels.contains("Users") && panels.contains("Ramble On") &&
 		panels.contains("Keychain Access"), "Control Panels has every panel the Zac menu has");
 	const VNode *mouse = vfsNode(vfsPathFor("system-folder/control-panels/zacos9-controlpanel-mouse"));
 	const VNode *napTime =

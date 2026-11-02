@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Open Terminal Here
+MimeType=inode/directory;
+Exec=stellablue-terminal-here %f
+NoDisplay=true

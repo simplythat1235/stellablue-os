@@ -1,5 +1,5 @@
 [Unit]
-Description=ZacOS 9 Software Update's daily check
+Description=Stella Blue OS Software Update's daily check
 # The desktop session's, for the window when there's something to install.
 After=graphical-session.target
 

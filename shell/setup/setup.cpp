@@ -153,8 +153,8 @@ void SetupWindow::showPage(Page p) {
 	m_error.clear();
 	if (p == Computer && m_computerName.text.isEmpty()) {
 		const QString first = m_fullName.text.trimmed().section(' ', 0, 0);
-		m_computerName.setText(first.isEmpty() ? QStringLiteral("ZacOS 9")
-		                                       : first + QStringLiteral("'s ZacOS 9"));
+		m_computerName.setText(first.isEmpty() ? QStringLiteral("Stella Blue OS")
+		                                       : first + QStringLiteral("'s Stella Blue OS"));
 		m_computerName.selectAll();
 	}
 
@@ -231,7 +231,7 @@ void SetupWindow::updateButtons() {
 	update();
 }
 
-/* "Adam's ZacOS 9" -> "adams-zacos-9": the name on the network. */
+/* "Adam's Stella Blue OS" -> "adams-zacos-9": the name on the network. */
 QString SetupWindow::hostName() const {
 	QString out;
 	for (QChar ch : m_computerName.text.trimmed().toLower().normalized(QString::NormalizationForm_KD)) {
@@ -416,7 +416,7 @@ void SetupWindow::paintArrow(pl_canvas *c, const PanelButton &b, bool right) con
 void SetupWindow::paintPage(pl_canvas *c) {
 	switch (m_page) {
 	case Intro: {
-		int y = wrapped(c, "Welcome to ZacOS 9.", 72);
+		int y = wrapped(c, "Welcome to Stella Blue OS.", 72);
 		y = wrapped(c, "This assistant asks a few questions to set up your computer: your name, "
 		               "a password, a name for the computer, your time zone and how it connects to "
 		               "the Internet. You can change them later.", y + 10);
@@ -433,8 +433,8 @@ void SetupWindow::paintPage(pl_canvas *c) {
 		panelLabel(c, "Password:", X0 + 84, m_password.rect.top() + 15);
 		panelLabel(c, "Verify:", X0 + 84, m_verify.rect.top() + 15);
 		wrapped(c, m_autoLogin.on
-				? "ZacOS 9 will start up straight to your desktop."
-				: "ZacOS 9 will ask for your short name and password when it starts up.",
+				? "Stella Blue OS will start up straight to your desktop."
+				: "Stella Blue OS will ask for your short name and password when it starts up.",
 			m_autoLogin.pos.y() + 40, PL_FONT_VIEWS, GRAY(0x4));
 		break;
 	case Computer: {
@@ -446,7 +446,7 @@ void SetupWindow::paintPage(pl_canvas *c) {
 	}
 	case TimeZone: panelText(c, "What time zone are you in?", X0, 72); break;
 	case Internet: {
-		wrapped(c, "ZacOS 9 connects to the Internet through the TCP/IP control panel. "
+		wrapped(c, "Stella Blue OS connects to the Internet through the TCP/IP control panel. "
 		           "Open it to choose a Wi-Fi network, or plug in a network cable. You can "
 		           "also skip this and connect later.", 72);
 		panelText(c, m_netStatus, X0, TCPIP_Y + 44, PL_FONT_VIEWS, GRAY(0x4));
@@ -455,7 +455,7 @@ void SetupWindow::paintPage(pl_canvas *c) {
 		break;
 	}
 	case Conclusion: {
-		panelText(c, "You're ready to set up ZacOS 9:", X0, 72);
+		panelText(c, "You're ready to set up Stella Blue OS:", X0, 72);
 		const QString rows[][2] = {
 			{ "Name:", m_fullName.text.trimmed() },
 			{ "Short name:", m_shortName.text },
@@ -478,7 +478,7 @@ void SetupWindow::paintPage(pl_canvas *c) {
 			break;
 		case State::Working: y = wrapped(c, "Setting up your computer…", y); break;
 		case State::Finished:
-			y = wrapped(c, "All set. Starting ZacOS 9 for " +
+			y = wrapped(c, "All set. Starting Stella Blue OS for " +
 				m_fullName.text.trimmed().section(' ', 0, 0) + "…", y);
 			break;
 		}

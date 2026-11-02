@@ -1,0 +1,4 @@
+#!/bin/sh
+# stellablue-copy-as jpg|png FILE...: a converted copy beside each.
+ext=$1; shift
+for f; do convert "$f" "${f%.*}.$ext"; done

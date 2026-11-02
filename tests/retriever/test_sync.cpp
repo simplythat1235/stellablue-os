@@ -52,6 +52,6 @@ int main(int argc, char **argv) {
 	CHECK(savePairs({ { a, b } }));
 	const QList<FolderPair> pairs = loadPairs();
 	CHECK(pairs.size() == 1 && pairs[0].left == a && pairs[0].right == b);
-	std::puts("ok: Retriever keeps folder pairs alike, newest wins");
+	std::puts("ok: Not Fade Away keeps folder pairs alike, newest wins");
 	return 0;
 }

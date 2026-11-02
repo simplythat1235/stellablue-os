@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Make PNG Copy
+MimeType=image/*;
+Exec=stellablue-copy-as png %F
+NoDisplay=true

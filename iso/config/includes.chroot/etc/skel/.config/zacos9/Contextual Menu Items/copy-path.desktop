@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Copy Path
+MimeType=
+Exec=stellablue-copy-path %F
+NoDisplay=true

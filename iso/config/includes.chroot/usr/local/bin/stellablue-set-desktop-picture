@@ -1,0 +1,45 @@
+#!/usr/bin/python3
+"""Copy an image into Zac OS's Wallpaper folder and make it the desktop."""
+import hashlib, os, re, shutil, sys, time
+src = os.path.abspath(sys.argv[1])
+home = os.path.expanduser("~")
+data = os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local/share")
+conf_dir = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
+walls = os.path.join(data, "zacos9/appearance/Wallpaper")
+os.makedirs(walls, exist_ok=True)
+name = os.path.basename(src)
+dest = os.path.join(walls, name)
+if os.path.abspath(dest) != src:
+    if os.path.exists(dest):
+        base, ext = os.path.splitext(name)
+        name = f"{base} {time.strftime('%Y%m%d-%H%M%S')}{ext}"
+        dest = os.path.join(walls, name)
+    shutil.copy2(src, dest)
+wid = "wallpaper:" + hashlib.sha256(name.encode()).hexdigest() + ":image"
+conf = os.path.join(conf_dir, "zacos9/desktop.conf")
+os.makedirs(os.path.dirname(conf), exist_ok=True)
+lines = open(conf).read().splitlines() if os.path.exists(conf) else ["[General]"]
+if "[General]" not in lines:
+    lines.insert(0, "[General]")
+want = {"background": "wallpaper", "wallpaper": wid}
+if not any(re.match(r"wallpaper-mode\s*=", l) for l in lines):
+    want["wallpaper-mode"] = "fill"
+out, done, section = [], set(), None
+for l in lines:
+    m = re.match(r"\[(.*)\]", l)
+    if m:
+        if section == "General":
+            out += [f"{k}={v}" for k, v in want.items() if k not in done]
+            done.update(want)
+        section = m.group(1)
+    k = l.split("=", 1)[0].strip()
+    if section == "General" and k in want:
+        out.append(f"{k}={want[k]}")
+        done.add(k)
+        continue
+    out.append(l)
+if section == "General":
+    out += [f"{k}={v}" for k, v in want.items() if k not in done]
+tmp = conf + ".tmp"
+open(tmp, "w").write("\n".join(out) + "\n")
+os.replace(tmp, conf)

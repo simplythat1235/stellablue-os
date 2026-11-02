@@ -157,7 +157,7 @@ int main(int argc, char **argv) {
 	struct mb_item *calc = item_named(&menu, "Calculator");
 	assert(calc && calc->action == ACT_LAUNCH && strstr(calc->arg, "zacos9-calculator"));
 	assert(calc->icon_kind == (int)PL_ICON_APP_CALCULATOR + 1);
-	assert(!contains_item(&menu, "Plotter") && !contains_item(&menu, "Dog Ears"));
+	assert(!contains_item(&menu, "Plotter") && !contains_item(&menu, "Ripple Notes"));
 	assert(item_named(&menu, "Top app")); /* the folder's own items, beside them */
 	/* Thrown away, it stays away: the folder is the menu. */
 	assert(unlink(calc_alias) == 0);

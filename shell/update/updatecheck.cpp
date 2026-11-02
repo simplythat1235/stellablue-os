@@ -8,7 +8,10 @@
 #include <QProcess>
 #include <QRegularExpression>
 
-static const char DEFAULT_REPO[] = "chromasystemprofessional/Zac-OS-9";
+// Stella Blue OS updates from its own repository, never upstream ZacOS 9,
+// which would replace it. Test ISOs are prereleases, which /releases/latest
+// skips.
+static const char DEFAULT_REPO[] = "simplythat1235/stellablue-os";
 
 QString updateRepo() {
 	const QString env = qEnvironmentVariable("ZACOS9_UPDATE_REPO");

@@ -550,7 +550,7 @@ void AppearancePanel::paintSoundTab(pl_canvas *c) {
 	const int x = m_sounds.frame.right() + 20;
 	int y = ITEM_TOP + 11;
 	for (const char *line : { "Click a sound to hear it.", "It plays whenever an",
-			"alert appears.", "Record a WAV with Bark Recorder." }) {
+			"alert appears.", "Record a WAV with Playin' Recorder." }) {
 		Text t(line, BOX_R - x - 4, PL_FONT_VIEWS);
 		pl_text(c, t.t, x, y, C_BLACK);
 		y += 13;
