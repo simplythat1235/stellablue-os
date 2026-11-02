@@ -141,7 +141,7 @@ public:
 		m_name.maxLength = 27;
 		m_name.edited = [this] { fieldsEdited(); };
 		m_format.rect = QRect(rx, PANE + 98, rw, PL_POPUP_H);
-		m_format.hint = "What the partition is formatted as: ZacOS for ZacOS 9, FAT32 or exFAT for any computer, NTFS for Windows.";
+		m_format.hint = "What the partition is formatted as: ZacOS for Stella Blue OS, FAT32 or exFAT for any computer, NTFS for Windows.";
 		m_format.chosen = [this](int) { fieldsEdited(); };
 		m_size.rect = QRect(rx, PANE + 126, 80, PL_EDIT_H);
 		m_size.hint = "Its size in GB. Or drag the line under it in the map.";

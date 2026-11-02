@@ -45,4 +45,4 @@ fi
 
 # The window couldn't be shown (no display, a broken install): the text
 # login, so nobody is ever locked out.
-exec tuigreet --time --remember --asterisks --greeting 'Welcome to ZacOS 9' --cmd zacos9-session
+exec tuigreet --time --remember --asterisks --greeting 'Welcome to Stella Blue OS' --cmd zacos9-session

@@ -58,7 +58,7 @@ static void startHelper(QProcess *p, const QStringList &args) {
 /* ---- construction -------------------------------------------------------- */
 
 InstallerWindow::InstallerWindow() {
-	setWindowTitle("ZacOS 9 Installer");
+	setWindowTitle("Stella Blue OS Installer");
 	setFixedSize(W, H);
 	showWelcome();
 }
@@ -78,8 +78,8 @@ void InstallerWindow::showSelect() {
 	m_where = PanelRadios();
 	m_where.add("Erase the whole disk", QPoint(MARGIN, 144));
 	m_where.add("Next to what's on it", QPoint(MARGIN + 200, 144));
-	m_where.hint = "Erase the whole disk for ZacOS 9 alone, or keep what's on it (Windows, Haiku...) "
-		"and give ZacOS 9 room beside it.";
+	m_where.hint = "Erase the whole disk for Stella Blue OS alone, or keep what's on it (Windows, Haiku...) "
+		"and give Stella Blue OS room beside it.";
 	m_where.changed = [this](int) { chooseTarget(false); };
 	m_map.frame = QRect(MARGIN, MAP_TOP, MAP_W, BTN_Y - 14 - MAP_TOP);
 	m_map.dragged = [this](int part, qulonglong at) { dragLine(part, at); };
@@ -109,7 +109,7 @@ void InstallerWindow::showSelect() {
 		m_diskName.setText(QStringLiteral("Zacintosh HD"));
 	}
 	m_prepare = PanelButton("Prepare Disk\u2026", QRect(MARGIN, BTN_Y, 112, BTN_H));
-	m_prepare.hint = "Opens Disk Setup to partition or erase a disk first: to keep Windows beside ZacOS 9, "
+	m_prepare.hint = "Opens Disk Setup to partition or erase a disk first: to keep Windows beside Stella Blue OS, "
 		"make a ZacOS (ext4) partition there, then choose it here.";
 	m_prepare.clicked = [this] { prepareDisk(); };
 	m_host.edits = { &m_diskName };
@@ -316,7 +316,7 @@ QString InstallerWindow::besideText() const {
 	if (z < 0) {
 		return QString();
 	}
-	QString text = QString("ZacOS 9 gets %1 (the new partition). Drag the line above or below it for more or "
+	QString text = QString("Stella Blue OS gets %1 (the new partition). Drag the line above or below it for more or "
 		"less room; it needs 16 GB at least.").arg(sizeText(d.parts[z].size));
 	DiskDrive at = m_target;
 	for (const DiskOp &op : m_ops) {
@@ -525,7 +525,7 @@ void InstallerWindow::enumerateDisks() {
 			label += " (" + QString::number(++seen[d.label()]) + ")";
 		}
 		if (!d.zacosVersion.isEmpty()) {
-			label += "  \xe2\x80\x94  ZacOS 9 " + d.zacosVersion;
+			label += "  \xe2\x80\x94  Stella Blue OS " + d.zacosVersion;
 		}
 		labels << label;
 	}
@@ -552,14 +552,14 @@ void InstallerWindow::paintWelcome(pl_canvas *c) {
 	paintLogo(c, W / 2, 68, 64);
 
 	/* Centred heading */
-	Text ttl("ZacOS 9 Installer", W, PL_FONT_SYSTEM);
+	Text ttl("Stella Blue OS Installer", W, PL_FONT_SYSTEM);
 	const int ttl_w = ttl.t->ink_l < 0 ? 0 : ttl.t->ink_r - ttl.t->ink_l + 1;
 	pl_text(c, ttl.t, (W - ttl_w) / 2, 122, C_BLACK);
 
 	bodyText(c,
-		"This will install ZacOS 9 on a hard disk, or update the ZacOS 9 "
+		"This will install Stella Blue OS on a hard disk, or update the Stella Blue OS "
 		"already on one, keeping its accounts, files and settings. "
-		"ZacOS 9 can have a whole disk, or go next to what's already on one "
+		"Stella Blue OS can have a whole disk, or go next to what's already on one "
 		"(Windows, say). Either way, back up any files you want to keep first.",
 		MARGIN, 148, W - 2 * MARGIN);
 
@@ -568,7 +568,7 @@ void InstallerWindow::paintWelcome(pl_canvas *c) {
 
 void InstallerWindow::paintSelect(pl_canvas *c) {
 	panelText(c, "Select a Destination", MARGIN, MARGIN + 13);
-	panelText(c, "Select the disk to install ZacOS 9 on.", MARGIN, MARGIN + 13 + 16, PL_FONT_VIEWS);
+	panelText(c, "Select the disk to install Stella Blue OS on.", MARGIN, MARGIN + 13 + 16, PL_FONT_VIEWS);
 
 	m_diskList.paint(c, true);
 	const DiskEntry *d = selectedDisk();
@@ -588,7 +588,7 @@ void InstallerWindow::paintSelect(pl_canvas *c) {
 	if (m_disks.empty()) {
 		panelText(c, "No suitable disks were found.", RX, ty);
 	} else if (has) {
-		const QString have = "This disk has ZacOS 9 " + d->zacosVersion + " (\xe2\x80\x9c" +
+		const QString have = "This disk has Stella Blue OS " + d->zacosVersion + " (\xe2\x80\x9c" +
 			d->zacosName + "\xe2\x80\x9d). ";
 		bodyText(c, d->zacosCmp > 0
 			? have + "That is newer than this installer's " + m_liveVersion +
@@ -622,7 +622,7 @@ void InstallerWindow::paintSelect(pl_canvas *c) {
 }
 
 void InstallerWindow::paintInstalling(pl_canvas *c) {
-	panelText(c, m_updating ? "Updating ZacOS 9\xE2\x80\xA6" : "Installing ZacOS 9\xE2\x80\xA6",
+	panelText(c, m_updating ? "Updating Stella Blue OS\xE2\x80\xA6" : "Installing Stella Blue OS\xE2\x80\xA6",
 		MARGIN, MARGIN + 13);
 
 	paintLogo(c, W / 2, 118, 48);
@@ -641,9 +641,9 @@ void InstallerWindow::paintDone(pl_canvas *c) {
 	pl_text(c, ttl.t, (W - ttl_w) / 2, 146, C_BLACK);
 
 	bodyText(c, m_updating
-		? "ZacOS 9 has been updated; your accounts, files and settings are as they were. "
+		? "Stella Blue OS has been updated; your accounts, files and settings are as they were. "
 		  "Remove the installer disk and click Restart."
-		: "ZacOS 9 has been installed. Remove the installer disk "
+		: "Stella Blue OS has been installed. Remove the installer disk "
 		  "and click Restart to start your new system.",
 		MARGIN, 166, W - 2 * MARGIN);
 	if (!m_restartError.isEmpty()) {

@@ -166,7 +166,7 @@ void UpdateWindow::check() {
 	m_debian.clear();
 	m_debianProblem.clear();
 	m_current = installedVersion(PACKAGE);
-	setText("Checking for updates…", "Looking for a new version of ZacOS 9 and for updates "
+	setText("Checking for updates…", "Looking for a new version of Stella Blue OS and for updates "
 		"to the Debian software it runs on.");
 	setButtons(QString(), "Cancel");
 	m_pendingChecks = 2;
@@ -195,7 +195,7 @@ void UpdateWindow::checkGitHub() {
 		} else {
 			const Release r = parseRelease(reply->readAll(), debArchitecture());
 			if (!r.valid) {
-				m_releaseError = "the newest release has no ZacOS 9 package for this computer";
+				m_releaseError = "the newest release has no Stella Blue OS package for this computer";
 			} else if (versionNewer(r.version, m_current)) {
 				m_release = r;
 			}
@@ -234,7 +234,7 @@ void UpdateWindow::showResults() {
 	const int n = static_cast<int>(m_debian.size());
 	QString detail;
 	if (zacos) {
-		detail += "ZacOS 9 " + m_release.version + " is available (this computer has " +
+		detail += "Stella Blue OS " + m_release.version + " is available (this computer has " +
 			(m_current.isEmpty() ? QString("an unknown version") : m_current) + "). ";
 	}
 	if (n > 0) {
@@ -246,7 +246,7 @@ void UpdateWindow::showResults() {
 			.arg(names.join(", ")).arg(n > 4 ? ", …" : "");
 	}
 	if (!m_releaseError.isEmpty()) {
-		detail += "Couldn’t look for a new ZacOS 9: " + m_releaseError + ". ";
+		detail += "Couldn’t look for a new Stella Blue OS: " + m_releaseError + ". ";
 	}
 	if (!m_debianProblem.isEmpty()) {
 		detail += m_debianProblem;
@@ -269,7 +269,7 @@ void UpdateWindow::showResults() {
 		m_state = State::UpToDate;
 		setText(sure ? "Your software is up to date." : "No updates were found.",
 			sure
-				? "ZacOS 9 " + m_current + " is the newest version, and Debian has no updates for it."
+				? "Stella Blue OS " + m_current + " is the newest version, and Debian has no updates for it."
 				: detail.trimmed());
 		setButtons("OK", QString());
 	}
@@ -301,7 +301,7 @@ void UpdateWindow::downloadDeb() {
 		QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + "/zacos9/updates";
 	QDir().mkpath(dir);
 	m_debPath = dir + "/" + QFileInfo(m_release.debName).fileName();
-	m_doing = "Downloading ZacOS 9 " + m_release.version;
+	m_doing = "Downloading Stella Blue OS " + m_release.version;
 	QNetworkRequest req{ QUrl(m_release.debUrl) };
 	req.setRawHeader("User-Agent", "zacos9-update");
 	req.setTransferTimeout(60000);
@@ -320,13 +320,13 @@ void UpdateWindow::downloadDeb() {
 		}
 		m_reply = nullptr;
 		if (reply->error() != QNetworkReply::NoError) {
-			failed("ZacOS 9 " + m_release.version + " couldn’t be downloaded: " + reply->errorString() + ".");
+			failed("Stella Blue OS " + m_release.version + " couldn’t be downloaded: " + reply->errorString() + ".");
 			return;
 		}
 		const QByteArray data = reply->readAll();
 		if (!m_release.sha256.isEmpty() &&
 				QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex() != m_release.sha256.toLatin1()) {
-			failed("The downloaded ZacOS 9 package is damaged (its checksum doesn’t match). Nothing was installed.");
+			failed("The downloaded Stella Blue OS package is damaged (its checksum doesn’t match). Nothing was installed.");
 			return;
 		}
 		QFile f(m_debPath);
@@ -353,14 +353,14 @@ void UpdateWindow::installDeb() {
 			}
 		}
 		if (code != 0 || pkg != PACKAGE || version != m_release.version) {
-			failed("The downloaded file isn’t ZacOS 9 " + m_release.version + ". Nothing was installed.");
+			failed("The downloaded file isn’t Stella Blue OS " + m_release.version + ". Nothing was installed.");
 			return;
 		}
-		m_doing = "Installing ZacOS 9 " + m_release.version;
+		m_doing = "Installing Stella Blue OS " + m_release.version;
 		update();
 		run(QString(), { "install-deb", m_debPath }, [this](int code) {
 			if (code != 0) {
-				failed("ZacOS 9 " + m_release.version + " couldn’t be installed" +
+				failed("Stella Blue OS " + m_release.version + " couldn’t be installed" +
 					(m_procErr.isEmpty() ? QString(".") : ": " + m_procErr));
 				return;
 			}
@@ -381,7 +381,7 @@ void UpdateWindow::upgradeDebian() {
 	update();
 	run(QString(), { "upgrade" }, [this](int code) {
 		if (code != 0) {
-			failed(QString(m_zacosUpdated ? "ZacOS 9 was updated, but the" : "The") +
+			failed(QString(m_zacosUpdated ? "Stella Blue OS was updated, but the" : "The") +
 				" Debian updates couldn’t be installed" +
 				(m_procErr.isEmpty() ? QString(".") : ": " + m_procErr));
 			return;
@@ -394,7 +394,7 @@ void UpdateWindow::finished() {
 	m_state = State::Done;
 	m_progress = 1;
 	if (m_zacosUpdated) {
-		setText("ZacOS 9 " + m_release.version + " is installed.",
+		setText("Stella Blue OS " + m_release.version + " is installed.",
 			"Restart the computer to start using it. Programs that are open keep running the "
 			"old version until then.");
 		setButtons("Restart", "Later");

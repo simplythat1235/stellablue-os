@@ -167,7 +167,7 @@ protected:
 		pl_canvas *c = &px.c;
 		pl_fill(c, 0, 0, width() - 1, height() - 1, GRAY(0xD));
 		/* The Users panel's welcome message, if an administrator set one. */
-		const QStringList welcome = panelWrap(m_welcome.isEmpty() ? QString("Welcome to ZacOS 9.")
+		const QStringList welcome = panelWrap(m_welcome.isEmpty() ? QString("Welcome to Stella Blue OS.")
 			: m_welcome, W - 2 * MARGIN - PICTURE - 8, PL_FONT_SYSTEM).mid(0, 3);
 		for (int i = 0; i < welcome.size(); i++) {
 			panelText(c, welcome[i], MARGIN,
